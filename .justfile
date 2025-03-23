@@ -38,3 +38,7 @@ clippy: fmt
 
 fmt:
   cargo fmt --all -- --check
+
+# Run the example
+agent:
+  cargo run --example agent
