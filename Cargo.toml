@@ -1,0 +1,14 @@
+[package]
+name = "spop"
+authors = ["Nicolas Embriz <nbari@tequila.io>"]
+description = "HAProxy SPOP (Stream Processing Offload Protocol)"
+documentation = "https://docs.rs/spop/latest/spop/"
+repository = "https://github.com/nbari/spop"
+readme = "README.md"
+keywords = ["haproxy", "spop", "spoe"]
+categories = ["network-programming"]
+version = "0.1.0"
+license = "BSD-3-Clause"
+edition = "2024"
+
+[dependencies]
