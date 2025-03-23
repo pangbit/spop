@@ -1,3 +1,5 @@
+[![Test](https://github.com/nbari/spop/actions/workflows/test.yml/badge.svg)](https://github.com/nbari/spop/actions/workflows/test.yml)
+
 # spop
 
 Library for parsing HAProxy SPOP protocol messages.
