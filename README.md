@@ -1,4 +1,4 @@
-[![Test](https://github.com/nbari/spop/actions/workflows/test.yml/badge.svg)](https://github.com/nbari/spop/actions/workflows/test.yml)
+[![Test](https://github.com/nbari/spop/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/nbari/spop/actions/workflows/test.yml)
 
 # spop
 
