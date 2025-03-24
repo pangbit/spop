@@ -2,7 +2,7 @@ use crate::{
     frame::{Frame, FramePayload, FrameType, Message},
     types::TypedData,
 };
-use hex::encode;
+// use hex::encode;
 use nom::{
     IResult, Parser,
     bytes::complete::take,
@@ -16,7 +16,6 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 // https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt
 pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
-    println!("input len: {}, hex: {}", input.len(), encode(input));
     // Exchange between HAProxy and agents are made using FRAME packets. All frames must be
     // prefixed with their size encoded on 4 bytes in network byte order:
     // <FRAME-LENGTH:4 bytes> <FRAME>
@@ -31,13 +30,6 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
         return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
     }
 
-    println!(
-        "remaining len: {}, frame len: {}, hex: {}",
-        remaining.len(),
-        frame.len(),
-        encode(frame)
-    );
-
     //A frame always starts with its type, on one byte, followed by metadata containing flags, on 4
     //bytes and a two variable-length integer representing the stream identifier and the frame
     //identifier inside the stream:
@@ -45,20 +37,10 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
     // FRAME       : <FRAME-TYPE:1 byte> <METADATA> <FRAME-PAYLOAD>
     let (frame, frame_type_byte) = be_u8(frame)?; // Read 1-byte frame type
 
-    println!("frame - frame_type: {}", frame.len());
-
     // METADATA    : <FLAGS:4 bytes> <STREAM-ID:varint> <FRAME-ID:varint>
     let (frame, flags) = be_u32(frame)?; // Read 4-byte flags
-
-    println!("frame - 4 bytes flags: {}", frame.len());
-
     let (frame, stream_id) = parse_varint(frame)?;
-
-    println!("frame - stream_id: {}", frame.len());
-
     let (frame, frame_id) = parse_varint(frame)?;
-
-    println!("frame - frame_id: {}", frame.len());
 
     // Then comes the frame payload. Depending on the frame type, the payload can be
     // of three types: a simple key/value list, a list of messages or a list of
@@ -106,18 +88,6 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
     //   -----------------------------+-----+-------------------------------------
 
     let frame_type = FrameType::from_u8(frame_type_byte);
-
-    // In parse_frame
-    println!("Frame length: {}", frame_length);
-    println!("Frame type: {}, {:#?}", frame_type_byte, frame_type);
-    println!("Flags: {}", flags);
-    println!("Stream ID: {}", stream_id);
-    println!("Frame ID: {}", frame_id);
-    println!(
-        "Payload size: {}, hex: {}",
-        frame_payload.len(),
-        encode(frame_payload)
-    );
 
     let payload = match frame_type {
         // 3.2.4. Frame: HAPROXY-HELLO
@@ -201,11 +171,6 @@ fn parse_varint(input: &[u8]) -> IResult<&[u8], u64> {
     Ok((input, value))
 }
 
-/// Parses a boolean from a flags bitfield
-pub const fn parse_boolean_from_flags(flags: u8) -> bool {
-    (flags & 0x01) != 0
-}
-
 /// Parse a TypedData from input bytes
 fn parse_typed_data(input: &[u8]) -> IResult<&[u8], TypedData> {
     if input.is_empty() {
@@ -217,15 +182,8 @@ fn parse_typed_data(input: &[u8]) -> IResult<&[u8], TypedData> {
     // TYPED-DATA    : <TYPE:4 bits><FLAGS:4 bits><DATA>
     //
     // First 4 bits are TYPE, last 4 bits are FLAGS
-    let type_id = type_and_flags >> 4;
-    let flags = type_and_flags & 0x0F;
-
-    println!(
-        "input len: {}, Type ID: {}, Flags: {}",
-        input.len(),
-        type_id,
-        flags
-    );
+    let type_id = type_and_flags & 0x0F;
+    let flags = type_and_flags >> 4;
 
     match type_id {
         0 => Ok((input, TypedData::Null)),
@@ -272,6 +230,17 @@ fn parse_typed_data(input: &[u8]) -> IResult<&[u8], TypedData> {
     }
 }
 
+/// Parse entire KV-LIST payload
+fn parse_key_value_pairs(input: &[u8]) -> IResult<&[u8], FramePayload> {
+    // Create the parser combinator chain
+    let mut parser = all_consuming(many0(complete(parse_key_value_pair)));
+
+    // Execute the parser with the input
+    let (input, pairs) = parser.parse(input)?;
+
+    Ok((input, FramePayload::KeyValuePairs(pairs)))
+}
+
 /// Parse a key-value pair (used in KV-LIST)
 /// A KV-LIST is a list of key/value pairs. Each pair is made of:
 /// - a name (STRING)
@@ -280,24 +249,15 @@ fn parse_key_value_pair(input: &[u8]) -> IResult<&[u8], (String, TypedData)> {
     // KV-NAME is a <STRING> (varint length + bytes)
     let (input, key) = parse_string(input)?;
 
+    // Ensure we have at least 1 byte left for the type
+    if input.is_empty() {
+        return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
+    }
+
     // KV-VALUE is a <TYPED-DATA>
     let (input, value) = parse_typed_data(input)?;
 
     Ok((input, (key, value)))
-}
-
-/// Parse entire KV-LIST payload
-fn parse_key_value_pairs(input: &[u8]) -> IResult<&[u8], FramePayload> {
-    let ascii_str = String::from_utf8_lossy(input);
-    println!("frame_payload: {}", ascii_str);
-
-    // Create the parser combinator chain
-    let mut parser = all_consuming(many0(complete(parse_key_value_pair)));
-
-    // Execute the parser with the input
-    let (input, pairs) = parser.parse(input)?;
-
-    Ok((input, FramePayload::KeyValuePairs(pairs)))
 }
 
 /// Parse a length-prefixed string
