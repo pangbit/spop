@@ -41,4 +41,4 @@ fmt:
 
 # Run the example
 agent:
-  cargo run --example agent
+  cargo watch -x 'run --example agent'
