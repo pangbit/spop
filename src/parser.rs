@@ -219,8 +219,15 @@ fn parse_varint(input: &[u8]) -> IResult<&[u8], u64> {
             + bytes[3] as u64;
         Ok((remaining, value))
     } else {
-        // Invalid varint encoding
-        Err(nom::Err::Error(Error::new(input, ErrorKind::Fail)))
+        // 6 bytes (first_byte == 255)
+        let (remaining, bytes) = take(5usize)(remaining)?;
+        value = 4328786160
+            + ((bytes[0] as u64) << 32)
+            + ((bytes[1] as u64) << 24)
+            + ((bytes[2] as u64) << 16)
+            + ((bytes[3] as u64) << 8)
+            + bytes[4] as u64;
+        Ok((remaining, value))
     }
 }
 
@@ -518,10 +525,19 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_varint() {
-        assert_eq!(
-            parse_varint(&[255]),
-            Err(nom::Err::Error(Error::new(&[255][..], ErrorKind::Fail)))
-        );
+    fn test_varint_6_bytes() {
+        // 6-byte encoding: 4328786160 <= X
+        let data = [0xFF, 0x00, 0x00, 0x00, 0x00, 0x00]; // 4328786160
+        let (_, value) = parse_varint(&data).unwrap();
+        assert_eq!(value, 4328786160);
+
+        let data = [0xFF, 0x00, 0x00, 0x00, 0x00, 0x01]; // 4328786161
+        let (_, value) = parse_varint(&data).unwrap();
+        assert_eq!(value, 4328786161);
+
+        // TODO - Add more tests
+        // let data = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F];
+        // let (_, value) = parse_varint(&data).unwrap();
+        // assert_eq!(value, 1103840413935);
     }
 }
