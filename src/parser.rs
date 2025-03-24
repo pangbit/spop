@@ -177,63 +177,28 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
 // bitfield. if this bit is set to 0, then the boolean is evaluated as false,
 // otherwise, the boolean is evaluated as true.
 fn parse_varint(input: &[u8]) -> IResult<&[u8], u64> {
-    let (input, first_byte) = be_u8(input)?;
+    let (mut input, first_byte) = be_u8(input)?;
 
-    // Single-byte case (0-239)
-    if first_byte < 0xF0 {
+    if first_byte < 240 {
         return Ok((input, first_byte as u64));
     }
 
-    // Multi-byte cases
-    match first_byte {
-        0xF0..=0xF7 => {
-            // 2-byte encoding [1111 XXXX][0XXX XXXX]
-            let (input, bytes) = take(1usize)(input)?;
-            let value = 240 + ((first_byte as u64 & 0x0F) << 8) + bytes[0] as u64;
-            Ok((input, value))
+    let mut value = first_byte as u64;
+    let mut shift = 4;
+
+    loop {
+        let (new_input, next_byte) = be_u8(input)?;
+        input = new_input;
+
+        value += (next_byte as u64) << shift;
+        shift += 7;
+
+        if next_byte < 128 {
+            break;
         }
-        0xF8..=0xFB => {
-            // 3-byte encoding [1111 XXXX][1XXX XXXX][0XXX XXXX]
-            let (input, bytes) = take(2usize)(input)?;
-            let value = 2288
-                + ((first_byte as u64 & 0x07) << 16)
-                + ((bytes[0] as u64) << 8)
-                + bytes[1] as u64;
-            Ok((input, value))
-        }
-        0xFC..=0xFD => {
-            // 4-byte encoding
-            let (input, bytes) = take(3usize)(input)?;
-            let value = 264432
-                + ((first_byte as u64 & 0x03) << 24)
-                + ((bytes[0] as u64) << 16)
-                + ((bytes[1] as u64) << 8)
-                + bytes[2] as u64;
-            Ok((input, value))
-        }
-        0xFE => {
-            // 5-byte encoding
-            let (input, bytes) = take(4usize)(input)?;
-            let value = 33818864
-                + ((bytes[0] as u64) << 24)
-                + ((bytes[1] as u64) << 16)
-                + ((bytes[2] as u64) << 8)
-                + bytes[3] as u64;
-            Ok((input, value))
-        }
-        0xFF => {
-            // 6-byte encoding
-            let (input, bytes) = take(5usize)(input)?;
-            let value = 4328786160
-                + ((bytes[0] as u64) << 32)
-                + ((bytes[1] as u64) << 24)
-                + ((bytes[2] as u64) << 16)
-                + ((bytes[3] as u64) << 8)
-                + bytes[4] as u64;
-            Ok((input, value))
-        }
-        _ => Err(nom::Err::Failure(Error::new(input, ErrorKind::TooLarge))),
     }
+
+    Ok((input, value))
 }
 
 /// Parses a boolean from a flags bitfield
@@ -406,20 +371,23 @@ mod tests {
 
         assert_eq!(parse_varint(&[0xF0, 0x00]), Ok((&[][..], 240)));
 
-        assert_eq!(parse_varint(&[0xF0, 0x01]), Ok((&[][..], 241)));
+        assert_eq!(parse_varint(&[0xF1, 0x00]), Ok((&[][..], 241)));
 
-        assert_eq!(parse_varint(&[0xF0, 0x3C]), Ok((&[][..], 300)));
+        assert_eq!(parse_varint(&[0xFC, 0x03]), Ok((&[][..], 300)));
 
-        assert_eq!(parse_varint(&[0xF7, 0xFF]), Ok((&[][..], 2287)));
+        assert_eq!(parse_varint(&[0xFF, 0x7F]), Ok((&[][..], 2287)));
 
-        assert_eq!(parse_varint(&[0xF8, 0x00, 0x00]), Ok((&[][..], 2288)));
+        assert_eq!(parse_varint(&[0xF0, 0x80, 0x00]), Ok((&[][..], 2288)));
 
-        assert_eq!(parse_varint(&[0xF8, 0x00, 0x84]), Ok((&[][..], 2420)));
-
-        assert_eq!(parse_varint(&[252, 0x0, 0x0, 0x0]), Ok((&[][..], 264432)));
+        assert_eq!(parse_varint(&[0xF4, 0x88, 0x00]), Ok((&[][..], 2420)));
 
         assert_eq!(
-            parse_varint(&[254, 0x0, 0x0, 0x0, 0x0]),
+            parse_varint(&[0xF0, 0x80, 0x80, 0x0]),
+            Ok((&[][..], 264432))
+        );
+
+        assert_eq!(
+            parse_varint(&[0xF0, 0x80, 0x80, 0x80, 0x0]),
             Ok((&[][..], 33818864))
         );
     }
@@ -445,65 +413,55 @@ mod tests {
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 240);
 
-        let data = [0xF0, 0x01]; // 241
+        let data = [0xF1, 0x00]; // 241
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 241);
 
-        let data = [0xF0, 0x3C]; // 243
+        let data = [0xFC, 0x03]; // 243
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 300);
 
-        let data = [0xF7, 0xFF]; // 2287 (max 2-byte)
+        let data = [0xFF, 0x7F]; // 2287 (max 2-byte)
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 2287);
 
-        assert_eq!(parse_varint(&[240, 10]), Ok((&[][..], 250))); // 2 bytes test.
-        assert_eq!(parse_varint(&[247, 255]), Ok((&[][..], 2287))); // 2 bytes test.
+        assert_eq!(parse_varint(&[250, 0]), Ok((&[][..], 250))); // 2 bytes test.
+        assert_eq!(parse_varint(&[255, 127]), Ok((&[][..], 2287))); // 2 bytes test.
     }
 
     #[test]
     fn test_varint_3_bytes() {
         // 3-byte encoding: 2288 <= X < 264432
-        assert_eq!(parse_varint(&[248, 0, 0]), Ok((&[][..], 2288)));
+        assert_eq!(parse_varint(&[240, 128, 0]), Ok((&[][..], 2288)));
 
-        let data = [0xF8, 0x00, 0x00]; // 2288
+        let data = [0xF0, 0x80, 0x00]; // 2288
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 2288);
 
-        let data = [0xF8, 0x00, 0x84]; // 2420
+        let data = [0xF4, 0x88, 0x00]; // 2420
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 2420);
 
-        let data = [0xFB, 0xFF, 0xFF]; // 264431 (max 3-byte)
+        let data = [0xFF, 0xFF, 0x7F]; // 264431 (max 3-byte)
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 264431);
 
-        assert_eq!(parse_varint(&[248, 0, 132]), Ok((&[][..], 2420))); // 3 bytes test.
-        assert_eq!(parse_varint(&[251, 0xFF, 0xFF]), Ok((&[][..], 264431))); // 3 bytes test.
+        assert_eq!(parse_varint(&[244, 136, 0]), Ok((&[][..], 2420))); // 3 bytes test.
+        assert_eq!(parse_varint(&[255, 0xFF, 0x7F]), Ok((&[][..], 264431))); // 3 bytes test.
     }
 
     #[test]
     fn test_varint_4_bytes() {
         // 4-byte encoding: 264432 <= X < 33818864
-        let data = [0xFC, 0x00, 0x00, 0x00]; // 264432
+        let data = [0xF0, 0x80, 0x80, 0x00]; // 264432
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 264432);
 
-        assert_eq!(
-            parse_varint(&[252, 0x00, 0x00, 0x00]),
-            Ok((&[][..], 264432))
-        );
-
-        assert_eq!(
-            parse_varint(&[253, 0xFF, 0xFF, 0xFF]),
-            Ok((&[][..], 33818863))
-        );
-
-        let data = [0xFC, 0x13, 0xF7, 0x40]; // Random middle value
+        let data = [0xF0, 0xF4, 0xFE, 0x04]; // Random middle value
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 1572912);
 
-        let data = [0xFD, 0xFF, 0xFF, 0xFF]; // 33818863 (max 4-byte)
+        let data = [0xFF, 0xFF, 0xFF, 0x7F]; // 33818863 (max 4-byte)
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 33818863);
     }
@@ -511,32 +469,27 @@ mod tests {
     #[test]
     fn test_varint_5_bytes() {
         // 5-byte encoding: 33818864 <= X < 4328786160
-        let data = [0xFE, 0x00, 0x00, 0x00, 0x00]; // 33818864
+        let data = [0xF0, 0x80, 0x80, 0x80, 0x00]; // 33818864
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 33818864);
 
-        let data = [0xFE, 0x0E, 0xC1, 0x65, 0xC0]; // Random middle value
+        let data = [0xF0, 0xDC, 0xAC, 0xB0, 0x07]; // Random middle value
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 281374384);
 
-        let data = [0xFE, 0xFF, 0xFF, 0xFF, 0xFF]; // 4328786159 (max 5-byte)
+        let data = [0xFF, 0xFF, 0xFF, 0xFF, 0x7F]; // 4328786159 (max 5-byte)
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 4328786159);
-
-        assert_eq!(
-            parse_varint(&[254, 0xFF, 0xFF, 0xFF, 0xFF]),
-            Ok((&[][..], 4328786159))
-        );
     }
 
     #[test]
     fn test_varint_6_bytes() {
         // 6-byte encoding: 4328786160 <= X
-        let data = [0xFF, 0x00, 0x00, 0x00, 0x00, 0x00]; // 4328786160
+        let data = [0xF0, 0x80, 0x80, 0x80, 0x80, 0x00]; // 4328786160
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 4328786160);
 
-        let data = [0xFF, 0x00, 0x00, 0x00, 0x00, 0x01]; // 4328786161
+        let data = [0xF1, 0x80, 0x80, 0x80, 0x80, 0x00]; // 4328786161
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 4328786161);
 
