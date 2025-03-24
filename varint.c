@@ -87,6 +87,7 @@ int main() {
     test_varint(4328786159);      // Max 5-byte value
     test_varint(4328786160);      // Min 6-byte value
     test_varint(4328786161);      // Min 6-byte value
+    test_varint(554084600047);    // Min 6-byte value
     test_varint(UINT64_MAX);      // Max possible value
 
     return 0;

@@ -493,9 +493,8 @@ mod tests {
         let (_, value) = parse_varint(&data).unwrap();
         assert_eq!(value, 4328786161);
 
-        // TODO - Add more tests
-        // let data = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F];
-        // let (_, value) = parse_varint(&data).unwrap();
-        // assert_eq!(value, 1103840413935);
+        let data = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F];
+        let (_, value) = parse_varint(&data).unwrap();
+        assert_eq!(value, 554084600047);
     }
 }
