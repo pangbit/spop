@@ -177,57 +177,62 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
 // bitfield. if this bit is set to 0, then the boolean is evaluated as false,
 // otherwise, the boolean is evaluated as true.
 fn parse_varint(input: &[u8]) -> IResult<&[u8], u64> {
-    if input.is_empty() {
-        return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
+    let (input, first_byte) = be_u8(input)?;
+
+    // Single-byte case (0-239)
+    if first_byte < 0xF0 {
+        return Ok((input, first_byte as u64));
     }
 
-    let (remaining, first_byte) = be_u8(input)?;
-
-    if first_byte < 240 {
-        // 1 byte
-        return Ok((remaining, first_byte as u64));
-    }
-
-    let value: u64;
-    if first_byte < 248 {
-        // 2 bytes
-        let (remaining, second_byte) = take(1usize)(remaining)?;
-        value = 240 + ((first_byte as u64 - 240) << 8) + second_byte[0] as u64;
-        Ok((remaining, value))
-    } else if first_byte < 252 {
-        // 3 bytes
-        let (remaining, bytes) = take(2usize)(remaining)?;
-        value =
-            2288 + ((first_byte as u64 - 248) << 16) + ((bytes[0] as u64) << 8) + bytes[1] as u64;
-        Ok((remaining, value))
-    } else if first_byte < 254 {
-        // 4 bytes
-        let (remaining, bytes) = take(3usize)(remaining)?;
-        value = 264432
-            + ((first_byte as u64 - 252) << 24)
-            + ((bytes[0] as u64) << 16)
-            + ((bytes[1] as u64) << 8)
-            + bytes[2] as u64;
-        Ok((remaining, value))
-    } else if first_byte == 254 {
-        // 5 bytes
-        let (remaining, bytes) = take(4usize)(remaining)?;
-        value = 33818864
-            + ((bytes[0] as u64) << 24)
-            + ((bytes[1] as u64) << 16)
-            + ((bytes[2] as u64) << 8)
-            + bytes[3] as u64;
-        Ok((remaining, value))
-    } else {
-        // 6 bytes (first_byte == 255)
-        let (remaining, bytes) = take(5usize)(remaining)?;
-        value = 4328786160
-            + ((bytes[0] as u64) << 32)
-            + ((bytes[1] as u64) << 24)
-            + ((bytes[2] as u64) << 16)
-            + ((bytes[3] as u64) << 8)
-            + bytes[4] as u64;
-        Ok((remaining, value))
+    // Multi-byte cases
+    match first_byte {
+        0xF0..=0xF7 => {
+            // 2-byte encoding [1111 XXXX][0XXX XXXX]
+            let (input, bytes) = take(1usize)(input)?;
+            let value = 240 + ((first_byte as u64 & 0x0F) << 8) + bytes[0] as u64;
+            Ok((input, value))
+        }
+        0xF8..=0xFB => {
+            // 3-byte encoding [1111 XXXX][1XXX XXXX][0XXX XXXX]
+            let (input, bytes) = take(2usize)(input)?;
+            let value = 2288
+                + ((first_byte as u64 & 0x07) << 16)
+                + ((bytes[0] as u64) << 8)
+                + bytes[1] as u64;
+            Ok((input, value))
+        }
+        0xFC..=0xFD => {
+            // 4-byte encoding
+            let (input, bytes) = take(3usize)(input)?;
+            let value = 264432
+                + ((first_byte as u64 & 0x03) << 24)
+                + ((bytes[0] as u64) << 16)
+                + ((bytes[1] as u64) << 8)
+                + bytes[2] as u64;
+            Ok((input, value))
+        }
+        0xFE => {
+            // 5-byte encoding
+            let (input, bytes) = take(4usize)(input)?;
+            let value = 33818864
+                + ((bytes[0] as u64) << 24)
+                + ((bytes[1] as u64) << 16)
+                + ((bytes[2] as u64) << 8)
+                + bytes[3] as u64;
+            Ok((input, value))
+        }
+        0xFF => {
+            // 6-byte encoding
+            let (input, bytes) = take(5usize)(input)?;
+            let value = 4328786160
+                + ((bytes[0] as u64) << 32)
+                + ((bytes[1] as u64) << 24)
+                + ((bytes[2] as u64) << 16)
+                + ((bytes[3] as u64) << 8)
+                + bytes[4] as u64;
+            Ok((input, value))
+        }
+        _ => Err(nom::Err::Failure(Error::new(input, ErrorKind::TooLarge))),
     }
 }
 
