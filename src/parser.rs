@@ -146,7 +146,7 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
 // For booleans, the value (true or false) is the first bit in the FLAGS
 // bitfield. if this bit is set to 0, then the boolean is evaluated as false,
 // otherwise, the boolean is evaluated as true.
-fn parse_varint(input: &[u8]) -> IResult<&[u8], u64> {
+pub fn parse_varint(input: &[u8]) -> IResult<&[u8], u64> {
     let (mut input, first_byte) = be_u8(input)?;
 
     if first_byte < 240 {
@@ -275,45 +275,53 @@ fn parse_string(input: &[u8]) -> IResult<&[u8], String> {
         .map_err(|_| nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Tag)))
 }
 
-/// Parse a single argument (name + typed data)
-fn parse_argument(input: &[u8]) -> IResult<&[u8], (String, TypedData)> {
-    let (input, name) = parse_string(input)?;
-    let (input, value) = parse_typed_data(input)?;
-    Ok((input, (name, value)))
-}
+/// Parse entire list of messages payload
+///
+/// LIST-OF-MESSAGES : [ <MESSAGE-NAME> <NB-ARGS:1 byte> <KV-LIST> ... ]
+/// MESSAGE-NAME     : <STRING>
+fn parse_list_of_messages(input: &[u8]) -> IResult<&[u8], FramePayload> {
+    let (_, message) = parse_string(input)?;
 
-/// Parse message data (name + arguments)
-fn parse_message_data(input: &[u8]) -> IResult<&[u8], Message> {
-    let (input, name) = parse_string(input)?;
-    let (input, num_args) = be_u32(input)?;
-    let (input, args) = count(parse_argument, num_args as usize).parse(input)?;
-    Ok((input, Message { name, args }))
+    let msg = Message { name: message };
+
+    Ok((input, FramePayload::Messages(vec![msg])))
+
+    //let (input, messages) = count(parse_single_message, num_messages as usize).parse(input)?;
+    //Ok((input, FramePayload::Messages(messages)))
 }
 
 /// Parse a single message with length prefix
-fn parse_single_message(input: &[u8]) -> IResult<&[u8], Message> {
-    let (input, message_length) = be_u64(input)?;
+// fn parse_single_message(input: &[u8]) -> IResult<&[u8], Message> {
+//     let (input, message_length) = be_u64(input)?;
+//
+//     if input.len() < message_length as usize {
+//         return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
+//     }
+//
+//     let (input, message_data) = take(message_length)(input)?;
+//     let (remaining, message) = all_consuming(parse_message_data).parse(message_data)?;
+//
+//     if !remaining.is_empty() {
+//         return Err(nom::Err::Error(Error::new(input, ErrorKind::NonEmpty)));
+//     }
+//
+//     Ok((input, message))
+// }
 
-    if input.len() < message_length as usize {
-        return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
-    }
-
-    let (input, message_data) = take(message_length)(input)?;
-    let (remaining, message) = all_consuming(parse_message_data).parse(message_data)?;
-
-    if !remaining.is_empty() {
-        return Err(nom::Err::Error(Error::new(input, ErrorKind::NonEmpty)));
-    }
-
-    Ok((input, message))
-}
-
-/// Parse entire list of messages payload
-fn parse_list_of_messages(input: &[u8]) -> IResult<&[u8], FramePayload> {
-    let (input, num_messages) = be_u32(input)?;
-    let (input, messages) = count(parse_single_message, num_messages as usize).parse(input)?;
-    Ok((input, FramePayload::Messages(messages)))
-}
+/// Parse message data (name + arguments)
+// fn parse_message_data(input: &[u8]) -> IResult<&[u8], Message> {
+//     let (input, name) = parse_string(input)?;
+//     let (input, num_args) = be_u32(input)?;
+//     let (input, args) = count(parse_argument, num_args as usize).parse(input)?;
+//     Ok((input, Message { name }))
+// }
+//
+// /// Parse a single argument (name + typed data)
+// fn parse_argument(input: &[u8]) -> IResult<&[u8], (String, TypedData)> {
+//     let (input, name) = parse_string(input)?;
+//     let (input, value) = parse_typed_data(input)?;
+//     Ok((input, (name, value)))
+// }
 
 #[cfg(test)]
 mod tests {

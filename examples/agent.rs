@@ -1,9 +1,15 @@
 use anyhow::Result;
 use bytes::BytesMut;
-use spop::parser::parse_frame; // Adjust according to your library structure
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-use tokio::net::TcpStream;
+use spop::{
+    frame::{FramePayload, FrameType},
+    parser::parse_frame,
+    serialize::AgentHello,
+    types::TypedData,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -27,11 +33,70 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
             break;
         }
 
+        println!("Buffer: {:X?}", buffer);
+
         match parse_frame(&buffer) {
-            Ok(frame) => {
-                println!("Received frame: {:?}", frame);
-                respond_ok(&mut socket).await?;
+            Ok((_, frame)) => {
+                println!("Parsed frame: {:?}", frame);
+
+                match frame.frame_type {
+                    // Respond with AgentHello frame
+                    FrameType::HaproxyHello => {
+                        // * "version"    <STRING>
+                        // This is the SPOP version the agent supports. It must follow the format
+                        // "Major.Minor" and it must be lower or equal than one of major versions
+                        // announced by HAProxy.
+                        let version = "2.0".to_string();
+
+                        // Extract max-frame-size from the frame payload
+                        let mut max_frame_size = 0;
+                        if let FramePayload::KeyValuePairs(kv_pairs) = &frame.payload {
+                            for (key, value) in kv_pairs {
+                                if key == "max-frame-size" {
+                                    if let TypedData::UInt32(val) = value {
+                                        max_frame_size = *val;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Create the AgentHello with the values
+                        let agent_hello = AgentHello {
+                            version,
+                            max_frame_size,
+                            capabilities: vec![], // Empty capabilities for now
+                        };
+
+                        println!("Sending AgentHello: {:#?}", agent_hello);
+
+                        // Serialize the AgentHello into a Frame
+                        match agent_hello.serialize() {
+                            Ok(response) => {
+                                socket.write_all(&response).await?;
+                                socket.flush().await?;
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to serialize response: {:?}", e);
+                            }
+                        }
+                    }
+
+                    // Respond with AgentDisconnect frame
+                    FrameType::HaproxyDisconnect => {
+                        respond_ok(&mut socket).await?;
+                    }
+
+                    // Respond with Ack frame
+                    FrameType::Notify => {
+                        respond_ok(&mut socket).await?;
+                    }
+
+                    _ => {
+                        eprintln!("Unsupported frame type: {:?}", frame.frame_type);
+                    }
+                }
             }
+
             Err(e) => {
                 eprintln!("Failed to parse frame: {:?}", e);
             }

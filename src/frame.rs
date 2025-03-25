@@ -23,6 +23,19 @@ impl FrameType {
             other => Self::Unknown(other),
         }
     }
+
+    /// Converts FrameType to its corresponding u8 value
+    pub const fn to_u8(&self) -> u8 {
+        match self {
+            Self::HaproxyHello => 1,
+            Self::HaproxyDisconnect => 2,
+            Self::Notify => 3,
+            Self::AgentHello => 101,
+            Self::AgentDisconnect => 102,
+            Self::Ack => 103,
+            Self::Unknown(val) => *val,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -44,7 +57,6 @@ pub enum FramePayload {
 #[derive(Debug)]
 pub struct Message {
     pub name: String,
-    pub args: Vec<(String, TypedData)>,
 }
 
 #[derive(Debug)]
