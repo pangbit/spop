@@ -26,3 +26,6 @@ To send a request to the haproxy container, type:
 ```bash
 just test
 ```
+
+The HAProxy configuration is in the `haproxy.cfg` file, and the SPOE
+configuration is in the `spoe-test.conf` file.
