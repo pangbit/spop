@@ -11,4 +11,4 @@ COPY haproxy.cfg /usr/local/etc/haproxy/haproxy.cfg
 COPY spoe-test.conf /usr/local/etc/haproxy/spoe-test.conf
 
 # Set up HAProxy to run in the foreground
-CMD ["haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg", "-db"]
+CMD ["haproxy", "-d", "-f", "/usr/local/etc/haproxy/haproxy.cfg", "-db"]
