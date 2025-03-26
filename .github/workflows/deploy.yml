@@ -6,6 +6,11 @@ on:
     tags:
       - '*'
   workflow_dispatch:
+    inputs:
+      branch:
+        required: true
+        type: string
+        default: main
 
 permissions:
   contents: write
