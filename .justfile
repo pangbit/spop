@@ -27,7 +27,7 @@ logs:
 
 # Test the HAProxy response
 test:
-    curl -v http://0:5000
+    curl -v http://0:5000 -H "CF-IPCountry: xx"
 
 # Attach to the running container for debugging
 shell:
