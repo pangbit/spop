@@ -1,6 +1,7 @@
 use crate::{
+    decode_varint,
     frame::{Frame, FramePayload, FrameType, Message},
-    types::TypedData,
+    types::{TypedData, typed_data},
 };
 // use hex::encode;
 use nom::{
@@ -8,11 +9,9 @@ use nom::{
     bytes::complete::take,
     combinator::{all_consuming, complete},
     error::{Error, ErrorKind},
-    multi::{count, many0},
-    number::streaming::{be_u8, be_u32, be_u64},
+    multi::{many_m_n, many0},
+    number::streaming::{be_u8, be_u32},
 };
-use std::convert::TryFrom;
-use std::net::{Ipv4Addr, Ipv6Addr};
 
 // https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt
 pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
@@ -39,8 +38,8 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
 
     // METADATA    : <FLAGS:4 bytes> <STREAM-ID:varint> <FRAME-ID:varint>
     let (frame, flags) = be_u32(frame)?; // Read 4-byte flags
-    let (frame, stream_id) = parse_varint(frame)?;
-    let (frame, frame_id) = parse_varint(frame)?;
+    let (frame, stream_id) = decode_varint(frame)?;
+    let (frame, frame_id) = decode_varint(frame)?;
 
     // Then comes the frame payload. Depending on the frame type, the payload can be
     // of three types: a simple key/value list, a list of messages or a list of
@@ -133,103 +132,6 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
     Ok((remaining, frame))
 }
 
-// Variable-length integer (varint) are encoded using Peers encoding:
-//
-//
-//        0  <= X < 240        : 1 byte  (7.875 bits)  [ XXXX XXXX ]
-//       240 <= X < 2288       : 2 bytes (11 bits)     [ 1111 XXXX ] [ 0XXX XXXX ]
-//      2288 <= X < 264432     : 3 bytes (18 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]   [ 0XXX XXXX ]
-//    264432 <= X < 33818864   : 4 bytes (25 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]*2 [ 0XXX XXXX ]
-//  33818864 <= X < 4328786160 : 5 bytes (32 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]*3 [ 0XXX XXXX ]
-//  ...
-//
-// For booleans, the value (true or false) is the first bit in the FLAGS
-// bitfield. if this bit is set to 0, then the boolean is evaluated as false,
-// otherwise, the boolean is evaluated as true.
-pub fn parse_varint(input: &[u8]) -> IResult<&[u8], u64> {
-    let (mut input, first_byte) = be_u8(input)?;
-
-    if first_byte < 240 {
-        return Ok((input, first_byte as u64));
-    }
-
-    let mut value = first_byte as u64;
-    let mut shift = 4;
-
-    loop {
-        let (new_input, next_byte) = be_u8(input)?;
-        input = new_input;
-
-        value += (next_byte as u64) << shift;
-        shift += 7;
-
-        if next_byte < 128 {
-            break;
-        }
-    }
-
-    Ok((input, value))
-}
-
-/// Parse a TypedData from input bytes
-fn parse_typed_data(input: &[u8]) -> IResult<&[u8], TypedData> {
-    if input.is_empty() {
-        return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
-    }
-
-    let (input, type_and_flags) = be_u8(input)?;
-
-    // TYPED-DATA    : <TYPE:4 bits><FLAGS:4 bits><DATA>
-    //
-    // First 4 bits are TYPE, last 4 bits are FLAGS
-    let type_id = type_and_flags & 0x0F;
-    let flags = type_and_flags >> 4;
-
-    match type_id {
-        0 => Ok((input, TypedData::Null)),
-        1 => Ok((input, TypedData::Bool((flags & 1) != 0))),
-        2 => parse_varint(input).map(|(i, v)| (i, TypedData::Int32(v as i32))),
-        3 => parse_varint(input).map(|(i, v)| (i, TypedData::UInt32(v as u32))),
-        4 => parse_varint(input).map(|(i, v)| (i, TypedData::Int64(v as i64))),
-        5 => parse_varint(input).map(|(i, v)| (i, TypedData::UInt64(v))),
-        6 => {
-            if input.len() < 4 {
-                return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
-            }
-            let (input, bytes) = take(4usize)(input)?;
-            let addr = Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]);
-            Ok((input, TypedData::IPv4(addr)))
-        }
-        7 => {
-            if input.len() < 16 {
-                return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
-            }
-            let (input, bytes) = take(16usize)(input)?;
-            let addr = Ipv6Addr::from(<[u8; 16]>::try_from(bytes).unwrap());
-            Ok((input, TypedData::IPv6(addr)))
-        }
-        8 | 9 => {
-            let (input, length) = parse_varint(input)?;
-
-            if input.len() < length as usize {
-                return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
-            }
-
-            let (input, data) = take(length)(input)?;
-            if type_id == 8 {
-                let s = String::from_utf8_lossy(data).into_owned();
-                Ok((input, TypedData::String(s)))
-            } else {
-                Ok((input, TypedData::Binary(data.to_vec())))
-            }
-        }
-        _ => Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::Tag,
-        ))),
-    }
-}
-
 /// Parse entire KV-LIST payload
 fn parse_key_value_pairs(input: &[u8]) -> IResult<&[u8], FramePayload> {
     // Create the parser combinator chain
@@ -255,14 +157,14 @@ fn parse_key_value_pair(input: &[u8]) -> IResult<&[u8], (String, TypedData)> {
     }
 
     // KV-VALUE is a <TYPED-DATA>
-    let (input, value) = parse_typed_data(input)?;
+    let (input, value) = typed_data(input)?;
 
     Ok((input, (key, value)))
 }
 
 /// Parse a length-prefixed string
 fn parse_string(input: &[u8]) -> IResult<&[u8], String> {
-    let (input, length) = parse_varint(input)?;
+    let (input, length) = decode_varint(input)?;
 
     if input.len() < length as usize {
         return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
@@ -280,189 +182,20 @@ fn parse_string(input: &[u8]) -> IResult<&[u8], String> {
 /// LIST-OF-MESSAGES : [ <MESSAGE-NAME> <NB-ARGS:1 byte> <KV-LIST> ... ]
 /// MESSAGE-NAME     : <STRING>
 fn parse_list_of_messages(input: &[u8]) -> IResult<&[u8], FramePayload> {
-    let (_, message) = parse_string(input)?;
+    let (remaining, message) = parse_string(input)?;
 
-    let msg = Message { name: message };
+    let (remaining, nb_args_bytes) = take(1usize)(remaining)?;
 
-    Ok((input, FramePayload::Messages(vec![msg])))
+    let nb_args = nb_args_bytes[0] as usize;
 
-    //let (input, messages) = count(parse_single_message, num_messages as usize).parse(input)?;
-    //Ok((input, FramePayload::Messages(messages)))
-}
+    let mut parser = all_consuming(many_m_n(nb_args, nb_args, parse_key_value_pair));
 
-/// Parse a single message with length prefix
-// fn parse_single_message(input: &[u8]) -> IResult<&[u8], Message> {
-//     let (input, message_length) = be_u64(input)?;
-//
-//     if input.len() < message_length as usize {
-//         return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
-//     }
-//
-//     let (input, message_data) = take(message_length)(input)?;
-//     let (remaining, message) = all_consuming(parse_message_data).parse(message_data)?;
-//
-//     if !remaining.is_empty() {
-//         return Err(nom::Err::Error(Error::new(input, ErrorKind::NonEmpty)));
-//     }
-//
-//     Ok((input, message))
-// }
+    let (remaining, kv_list) = parser.parse(remaining)?;
 
-/// Parse message data (name + arguments)
-// fn parse_message_data(input: &[u8]) -> IResult<&[u8], Message> {
-//     let (input, name) = parse_string(input)?;
-//     let (input, num_args) = be_u32(input)?;
-//     let (input, args) = count(parse_argument, num_args as usize).parse(input)?;
-//     Ok((input, Message { name }))
-// }
-//
-// /// Parse a single argument (name + typed data)
-// fn parse_argument(input: &[u8]) -> IResult<&[u8], (String, TypedData)> {
-//     let (input, name) = parse_string(input)?;
-//     let (input, value) = parse_typed_data(input)?;
-//     Ok((input, (name, value)))
-// }
+    let msg = Message {
+        name: message,
+        args: kv_list,
+    };
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_varint() {
-        assert_eq!(parse_varint(&[0x00]), Ok((&[][..], 0)));
-
-        assert_eq!(parse_varint(&[0x01]), Ok((&[][..], 1)));
-
-        assert_eq!(parse_varint(&[0x0F]), Ok((&[][..], 15)));
-
-        assert_eq!(parse_varint(&[0xEF, 0x01]), Ok((&[0x01][..], 239)));
-
-        assert_eq!(parse_varint(&[0xF0, 0x00]), Ok((&[][..], 240)));
-
-        assert_eq!(parse_varint(&[0xF1, 0x00]), Ok((&[][..], 241)));
-
-        assert_eq!(parse_varint(&[0xFC, 0x03]), Ok((&[][..], 300)));
-
-        assert_eq!(parse_varint(&[0xFF, 0x7F]), Ok((&[][..], 2287)));
-
-        assert_eq!(parse_varint(&[0xF0, 0x80, 0x00]), Ok((&[][..], 2288)));
-
-        assert_eq!(parse_varint(&[0xF4, 0x88, 0x00]), Ok((&[][..], 2420)));
-
-        assert_eq!(
-            parse_varint(&[0xF0, 0x80, 0x80, 0x0]),
-            Ok((&[][..], 264432))
-        );
-
-        assert_eq!(
-            parse_varint(&[0xF0, 0x80, 0x80, 0x80, 0x0]),
-            Ok((&[][..], 33818864))
-        );
-    }
-
-    #[test]
-    fn test_varint_1_byte() {
-        // 1-byte encoding: 0 <= X < 240
-        let data = [0x10]; // 16 in decimal
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 16);
-
-        let data = [0xEF]; // 239 in decimal (max 1-byte)
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 239);
-
-        assert_eq!(parse_varint(&[239]), Ok((&[][..], 239))); // 1 byte test.
-    }
-
-    #[test]
-    fn test_varint_2_bytes() {
-        // 2-byte encoding: 240 <= X < 2288
-        let data = [0xF0, 0x00]; // 240
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 240);
-
-        let data = [0xF1, 0x00]; // 241
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 241);
-
-        let data = [0xFC, 0x03]; // 243
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 300);
-
-        let data = [0xFF, 0x7F]; // 2287 (max 2-byte)
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 2287);
-
-        assert_eq!(parse_varint(&[250, 0]), Ok((&[][..], 250))); // 2 bytes test.
-        assert_eq!(parse_varint(&[255, 127]), Ok((&[][..], 2287))); // 2 bytes test.
-    }
-
-    #[test]
-    fn test_varint_3_bytes() {
-        // 3-byte encoding: 2288 <= X < 264432
-        assert_eq!(parse_varint(&[240, 128, 0]), Ok((&[][..], 2288)));
-
-        let data = [0xF0, 0x80, 0x00]; // 2288
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 2288);
-
-        let data = [0xF4, 0x88, 0x00]; // 2420
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 2420);
-
-        let data = [0xFF, 0xFF, 0x7F]; // 264431 (max 3-byte)
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 264431);
-
-        assert_eq!(parse_varint(&[244, 136, 0]), Ok((&[][..], 2420))); // 3 bytes test.
-        assert_eq!(parse_varint(&[255, 0xFF, 0x7F]), Ok((&[][..], 264431))); // 3 bytes test.
-    }
-
-    #[test]
-    fn test_varint_4_bytes() {
-        // 4-byte encoding: 264432 <= X < 33818864
-        let data = [0xF0, 0x80, 0x80, 0x00]; // 264432
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 264432);
-
-        let data = [0xF0, 0xF4, 0xFE, 0x04]; // Random middle value
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 1572912);
-
-        let data = [0xFF, 0xFF, 0xFF, 0x7F]; // 33818863 (max 4-byte)
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 33818863);
-    }
-
-    #[test]
-    fn test_varint_5_bytes() {
-        // 5-byte encoding: 33818864 <= X < 4328786160
-        let data = [0xF0, 0x80, 0x80, 0x80, 0x00]; // 33818864
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 33818864);
-
-        let data = [0xF0, 0xDC, 0xAC, 0xB0, 0x07]; // Random middle value
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 281374384);
-
-        let data = [0xFF, 0xFF, 0xFF, 0xFF, 0x7F]; // 4328786159 (max 5-byte)
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 4328786159);
-    }
-
-    #[test]
-    fn test_varint_6_bytes() {
-        // 6-byte encoding: 4328786160 <= X
-        let data = [0xF0, 0x80, 0x80, 0x80, 0x80, 0x00]; // 4328786160
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 4328786160);
-
-        let data = [0xF1, 0x80, 0x80, 0x80, 0x80, 0x00]; // 4328786161
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 4328786161);
-
-        let data = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F];
-        let (_, value) = parse_varint(&data).unwrap();
-        assert_eq!(value, 554084600047);
-    }
+    Ok((remaining, FramePayload::Messages(vec![msg])))
 }

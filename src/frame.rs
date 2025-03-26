@@ -57,6 +57,7 @@ pub enum FramePayload {
 #[derive(Debug)]
 pub struct Message {
     pub name: String,
+    pub args: Vec<(String, TypedData)>,
 }
 
 #[derive(Debug)]

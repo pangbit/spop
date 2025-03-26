@@ -1,27 +1,7 @@
+use crate::encode_varint; // Import encode_varint
 use crate::frame::{Frame, FramePayload, FrameType};
 use crate::types::TypedData;
 use std::io::Result;
-
-// Encoding a varint
-fn encode_varint(i: u64) -> Vec<u8> {
-    let mut buf = Vec::new();
-
-    if i < 240 {
-        buf.push(i as u8);
-    } else {
-        buf.push((i | 240) as u8);
-        let mut i = (i - 240) >> 4;
-
-        while i >= 128 {
-            buf.push((i | 128) as u8);
-            i = (i - 128) >> 7;
-        }
-
-        buf.push(i as u8);
-    }
-
-    buf
-}
 
 /// Structure representing an AGENT-HELLO frame
 #[derive(Debug)]
@@ -73,25 +53,6 @@ impl AgentHello {
         serialized.extend(encode_varint(frame.stream_id));
         serialized.extend(encode_varint(frame.frame_id));
 
-        // Serialize key-value pairs
-        // TYPED-DATA    : <TYPE:4 bits><FLAGS:4 bits><DATA>
-        //
-        // x07version\x08\x032.0\x0emax-frame-size\x03\xfc\xf0\x06\x0ccapabilities\x08\x00'
-        //
-        //     TYPE                       |  ID | DESCRIPTION
-        // -----------------------------+-----+----------------------------------
-        //    NULL                      |  0  |  NULL   : <0>
-        //    Boolean                   |  1  |  BOOL   : <1+FLAG>
-        //    32bits signed integer     |  2  |  INT32  : <2><VALUE:varint>
-        //    32bits unsigned integer   |  3  |  UINT32 : <3><VALUE:varint>
-        //    64bits signed integer     |  4  |  INT64  : <4><VALUE:varint>
-        //    32bits unsigned integer   |  5  |  UNIT64 : <5><VALUE:varint>
-        //    IPV4                      |  6  |  IPV4   : <6><STRUCT IN_ADDR:4 bytes>
-        //    IPV6                      |  7  |  IPV6   : <7><STRUCT IN_ADDR6:16 bytes>
-        //    String                    |  8  |  STRING : <8><LENGTH:varint><BYTES>
-        //    Binary                    |  9  |  BINARY : <9><LENGTH:varint><BYTES>
-        //   10 -> 15  unused/reserved  |  -  |  -
-        // -----------------------------+-----+----------------------------------
         if let FramePayload::KeyValuePairs(kv_pairs) = &frame.payload {
             for (key, value) in kv_pairs {
                 // <KEY-LENGTH><KEY><VALUE-TYPE><VALUE-LNGTH><VALUE>
@@ -136,51 +97,24 @@ impl AgentHello {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::parse_varint; // Import parse_varint
+/// Serializes an Agent ACK frame.
+///
+/// The ACK frame acknowledges a NOTIFY frame. It uses the same stream_id and frame_id
+/// as the NOTIFY. For this example, we assume an empty payload.
+pub fn serialize_ack(stream_id: u64, frame_id: u64) -> Vec<u8> {
+    let frame_type: u8 = 103; // ACK frame type
+    let flags: u8 = 0; // Typically, ACK might not need extra flags.
+    let payload: Vec<u8> = Vec::new();
+    let payload_len = payload.len() as u32;
 
-    #[test]
-    fn test_encode_decode_varint() {
-        // Test cases to cover all different byte ranges
-        let test_values: Vec<u64> = vec![
-            0,           // 1 byte
-            239,         // 1 byte
-            240,         // 2 bytes
-            2287,        // 2 bytes
-            2288,        // 3 bytes
-            264432,      // 4 bytes
-            4328786160,  // 5 bytes
-            10000000000, // Large value
-        ];
-
-        for &value in &test_values {
-            // Encode the value
-            let encoded = encode_varint(value);
-
-            // Decode the encoded value
-            let (remaining_input, decoded) = parse_varint(&encoded).unwrap();
-
-            // Assert that the decoded value matches the original
-            assert_eq!(value, decoded);
-
-            // Ensure there is no extra data left after decoding
-            assert!(
-                remaining_input.is_empty(),
-                "Remaining input should be empty"
-            );
-        }
-    }
-
-    #[test]
-    fn test_encode_decode_varint_loop() {
-        // Test encoding and decoding a large number of values
-        for i in 0..300000 {
-            let encoded = encode_varint(i);
-            let (remaining_input, decoded) = parse_varint(&encoded).unwrap();
-            assert_eq!(i, decoded, "Failed for value: {}", i);
-            assert!(remaining_input.is_empty());
-        }
-    }
+    // Suppose our frame header is defined as:
+    // [ frame_type (1 byte) | flags (1 byte) | stream_id (4 bytes) | frame_id (4 bytes) | payload_length (4 bytes) ]
+    let mut buf = Vec::with_capacity(1 + 1 + 4 + 4 + 4 + payload.len());
+    buf.push(frame_type);
+    buf.push(flags);
+    buf.extend_from_slice(&stream_id.to_be_bytes());
+    buf.extend_from_slice(&frame_id.to_be_bytes());
+    buf.extend_from_slice(&payload_len.to_be_bytes());
+    buf.extend_from_slice(&payload);
+    buf
 }

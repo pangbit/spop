@@ -3,7 +3,7 @@ use bytes::BytesMut;
 use spop::{
     frame::{FramePayload, FrameType},
     parser::parse_frame,
-    serialize::AgentHello,
+    serialize::{AgentHello, serialize_ack},
     types::TypedData,
 };
 use tokio::{
@@ -88,7 +88,11 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
 
                     // Respond with Ack frame
                     FrameType::Notify => {
-                        respond_ok(&mut socket).await?;
+                        let serial_id = frame.stream_id;
+                        let frame_id = frame.frame_id;
+                        let ack = serialize_ack(serial_id, frame_id);
+                        socket.write_all(&ack).await?;
+                        socket.flush().await?;
                     }
 
                     _ => {
