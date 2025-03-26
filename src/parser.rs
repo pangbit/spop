@@ -1,11 +1,11 @@
 use crate::{
     decode_varint,
-    frame::{Frame, FramePayload, FrameType, Message},
+    frame::{Frame, FrameFlags, FramePayload, FrameType, Message, Metadata},
     types::{TypedData, typed_data},
 };
 // use hex::encode;
 use nom::{
-    IResult, Parser,
+    Err, IResult, Parser,
     bytes::complete::take,
     combinator::{all_consuming, complete},
     error::{Error, ErrorKind},
@@ -36,10 +36,30 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
     // FRAME       : <FRAME-TYPE:1 byte> <METADATA> <FRAME-PAYLOAD>
     let (frame, frame_type_byte) = be_u8(frame)?; // Read 1-byte frame type
 
+    // Convert the byte to a FrameType
+    let frame_type = FrameType::from_u8(frame_type_byte)
+        .map_err(|_| Err::Error(Error::new(input, ErrorKind::Alt)))?;
+
     // METADATA    : <FLAGS:4 bytes> <STREAM-ID:varint> <FRAME-ID:varint>
-    let (frame, flags) = be_u32(frame)?; // Read 4-byte flags
+    let (frame, flags_value) = be_u32(frame)?; // Read 4-byte flags
+
+    // Convert the flags to a FrameFlags
+    let flags = FrameFlags::from_u32(flags_value)
+        .map_err(|_| Err::Error(Error::new(input, ErrorKind::Alt)))?;
+
+    if flags.is_abort() {
+        return Err(nom::Err::Failure(Error::new(input, ErrorKind::Verify)));
+    }
+
     let (frame, stream_id) = decode_varint(frame)?;
     let (frame, frame_id) = decode_varint(frame)?;
+
+    // Create the metadata structure
+    let metadata = Metadata {
+        flags,
+        stream_id,
+        frame_id,
+    };
 
     // Then comes the frame payload. Depending on the frame type, the payload can be
     // of three types: a simple key/value list, a list of messages or a list of
@@ -58,35 +78,6 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
     //     KV-VALUE         : <TYPED-DATA>
     //
     let frame_payload = frame;
-
-    // 3.2.2. Frame types overview
-    // ----------------------------
-    //
-    // Here are types of frame supported by SPOE. Frames sent by HAProxy come first,
-    // then frames sent by agents :
-    //
-    //     TYPE                       |  ID | DESCRIPTION
-    //   -----------------------------+-----+-------------------------------------
-    //      HAPROXY-HELLO             |  1  |  Sent by HAProxy when it opens a
-    //                                |     |  connection on an agent.
-    //                                |     |
-    //      HAPROXY-DISCONNECT        |  2  |  Sent by HAProxy when it want to close
-    //                                |     |  the connection or in reply to an
-    //                                |     |  AGENT-DISCONNECT frame
-    //                                |     |
-    //      NOTIFY                    |  3  |  Sent by HAProxy to pass information
-    //                                |     |  to an agent
-    //   -----------------------------+-----+-------------------------------------
-    //      AGENT-HELLO               | 101 |  Reply to a HAPROXY-HELLO frame, when
-    //                                |     |  the connection is established
-    //                                |     |
-    //      AGENT-DISCONNECT          | 102 |  Sent by an agent just before closing
-    //                                |     |  the connection
-    //                                |     |
-    //      ACK                       | 103 |  Sent to acknowledge a NOTIFY frame
-    //   -----------------------------+-----+-------------------------------------
-
-    let frame_type = FrameType::from_u8(frame_type_byte);
 
     let payload = match frame_type {
         // 3.2.4. Frame: HAPROXY-HELLO
@@ -118,14 +109,12 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
 
         // Unknown frames may be silently skipped or trigger an error, depending on the
         // implementation.
-        _ => return Err(nom::Err::Failure(Error::new(input, ErrorKind::Tag))),
+        _ => return Err(nom::Err::Failure(Error::new(input, ErrorKind::NoneOf))),
     };
 
     let frame = Frame {
         frame_type,
-        flags,
-        stream_id,
-        frame_id,
+        metadata,
         payload,
     };
 
@@ -140,7 +129,7 @@ fn parse_key_value_pairs(input: &[u8]) -> IResult<&[u8], FramePayload> {
     // Execute the parser with the input
     let (input, pairs) = parser.parse(input)?;
 
-    Ok((input, FramePayload::KeyValuePairs(pairs)))
+    Ok((input, FramePayload::KVList(pairs)))
 }
 
 /// Parse a key-value pair (used in KV-LIST)
@@ -197,5 +186,5 @@ fn parse_list_of_messages(input: &[u8]) -> IResult<&[u8], FramePayload> {
         args: kv_list,
     };
 
-    Ok((remaining, FramePayload::Messages(vec![msg])))
+    Ok((remaining, FramePayload::ListOfMessages(vec![msg])))
 }

@@ -29,7 +29,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 //      Binary                    |  9  |  BINARY : <9><LENGTH:varint><BYTES>
 //     10 -> 15  unused/reserved  |  -  |  -
 //   -----------------------------+-----+----------------------------------
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TypedData {
     Null,
     Bool(bool),

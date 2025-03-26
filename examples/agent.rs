@@ -1,9 +1,9 @@
 use anyhow::Result;
 use bytes::BytesMut;
 use spop::{
-    frame::{FramePayload, FrameType},
+    frame::{FramePayload, FrameType, VarScope},
     parser::parse_frame,
-    serialize::{AgentHello, serialize_ack},
+    serialize::{Ack, AgentHello},
     types::TypedData,
 };
 use tokio::{
@@ -50,7 +50,7 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
 
                         // Extract max-frame-size from the frame payload
                         let mut max_frame_size = 0;
-                        if let FramePayload::KeyValuePairs(kv_pairs) = &frame.payload {
+                        if let FramePayload::KVList(kv_pairs) = &frame.payload {
                             for (key, value) in kv_pairs {
                                 if key == "max-frame-size" {
                                     if let TypedData::UInt32(val) = value {
@@ -67,10 +67,13 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
                             capabilities: vec![], // Empty capabilities for now
                         };
 
-                        println!("Sending AgentHello: {:#?}", agent_hello);
+                        // Create the response frame
+                        let frame = agent_hello.to_frame();
+
+                        println!("Sending AgentHello: {:#?}", frame);
 
                         // Serialize the AgentHello into a Frame
-                        match agent_hello.serialize() {
+                        match frame.serialize() {
                             Ok(response) => {
                                 socket.write_all(&response).await?;
                                 socket.flush().await?;
@@ -83,16 +86,33 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
 
                     // Respond with AgentDisconnect frame
                     FrameType::HaproxyDisconnect => {
-                        respond_ok(&mut socket).await?;
+                        todo!();
                     }
 
                     // Respond with Ack frame
                     FrameType::Notify => {
-                        let serial_id = frame.stream_id;
-                        let frame_id = frame.frame_id;
-                        let ack = serialize_ack(serial_id, frame_id);
-                        socket.write_all(&ack).await?;
-                        socket.flush().await?;
+                        let ack = Ack::new(frame.metadata.stream_id, frame.metadata.frame_id)
+                            .set_var(
+                                VarScope::Transaction,
+                                "my_var",
+                                TypedData::String("tequila".to_string()),
+                            );
+
+                        // Create the response frame
+                        let frame = ack.to_frame();
+
+                        println!("Sending Ack: {:#?}", frame);
+
+                        // Serialize the Ack into a Frame
+                        match frame.serialize() {
+                            Ok(response) => {
+                                socket.write_all(&response).await?;
+                                socket.flush().await?;
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to serialize response: {:?}", e);
+                            }
+                        }
                     }
 
                     _ => {
@@ -109,12 +129,5 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
         buffer.clear();
     }
 
-    Ok(())
-}
-
-async fn respond_ok(socket: &mut TcpStream) -> Result<()> {
-    let response = b"\x00\x00\x00\x04OK\x00"; // SPOE response example
-    socket.write_all(response).await?;
-    socket.flush().await?;
     Ok(())
 }
