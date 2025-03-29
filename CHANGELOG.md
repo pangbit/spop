@@ -1,6 +1,9 @@
 Changelog
 =========
 
+## 0.6.0
+- Implemented HAPROXY/AGENT - DISCONNECT
+
 ## 0.5.0
 - ACK (ACTION-UNSET-VAR) working
 - example covering on-client-session and on-frontend-http-request

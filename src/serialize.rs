@@ -89,3 +89,36 @@ impl Ack {
         }
     }
 }
+
+/// Structure representing an AGENT-DISCONNECT frame
+#[derive(Debug)]
+pub struct AgentDisconnect {
+    pub status_code: u32,
+    pub message: String,
+}
+
+impl AgentDisconnect {
+    /// Serializes the AGENT-DISCONNECT frame into a `Frame` structure
+    pub fn to_frame(&self) -> Frame {
+        let key_value_pairs = vec![
+            (
+                "status-code".to_string(),
+                TypedData::UInt32(self.status_code),
+            ),
+            (
+                "message".to_string(),
+                TypedData::String(self.message.clone()),
+            ),
+        ];
+
+        Frame {
+            frame_type: FrameType::AgentDisconnect,
+            metadata: Metadata {
+                flags: FrameFlags::new(true, false), // FIN flag set, ABORT flag not set
+                stream_id: 0,
+                frame_id: 0,
+            },
+            payload: FramePayload::KVList(key_value_pairs),
+        }
+    }
+}

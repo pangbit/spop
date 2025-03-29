@@ -3,7 +3,7 @@ use bytes::BytesMut;
 use spop::{
     frame::{FramePayload, FrameType, VarScope},
     parser::parse_frame,
-    serialize::{Ack, AgentHello},
+    serialize::{Ack, AgentDisconnect, AgentHello},
     types::TypedData,
 };
 use tokio::{
@@ -86,7 +86,31 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
 
                     // Respond with AgentDisconnect frame
                     FrameType::HaproxyDisconnect => {
-                        todo!();
+                        let agent_disconnect = AgentDisconnect {
+                            status_code: 0,
+                            message: "Goodbye".to_string(),
+                        };
+
+                        // Create the response frame
+                        let frame = agent_disconnect.to_frame();
+
+                        println!("Sending AgentDisconnect: {:#?}", frame);
+
+                        // Serialize the AgentDisconnect into a Frame
+                        match frame.serialize() {
+                            Ok(response) => {
+                                socket.write_all(&response).await?;
+                                socket.flush().await?;
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to serialize response: {:?}", e);
+                            }
+                        }
+
+                        // Shutdown the write side of the socket
+                        if let Err(e) = socket.shutdown().await {
+                            eprintln!("Failed to shutdown socket: {:?}", e);
+                        }
                     }
 
                     // Respond with Ack frame
