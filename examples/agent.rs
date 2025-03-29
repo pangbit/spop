@@ -91,26 +91,54 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
 
                     // Respond with Ack frame
                     FrameType::Notify => {
-                        let ack = Ack::new(frame.metadata.stream_id, frame.metadata.frame_id)
-                            .set_var(
-                                VarScope::Transaction,
-                                "my_var",
-                                TypedData::String("tequila".to_string()),
+                        if let FramePayload::ListOfMessages(messages) = &frame.payload {
+                            let mut vars = Vec::new();
+
+                            for message in messages {
+                                match message.name.as_str() {
+                                    "check-client-ip" => {
+                                        let random_value: u32 = rand::random_range(0..100);
+                                        vars.push((
+                                            VarScope::Session,
+                                            "ip_score",
+                                            TypedData::UInt32(random_value),
+                                        ));
+                                    }
+
+                                    "log-request" => {
+                                        vars.push((
+                                            VarScope::Transaction,
+                                            "my_var",
+                                            TypedData::String("tequila".to_string()),
+                                        ));
+                                    }
+
+                                    _ => {
+                                        eprintln!("Unsupported message: {:?}", message.name);
+                                    }
+                                }
+                            }
+
+                            // Create the Ack frame
+                            let ack = vars.into_iter().fold(
+                                Ack::new(frame.metadata.stream_id, frame.metadata.frame_id),
+                                |ack, (scope, name, value)| ack.set_var(scope, name, value),
                             );
 
-                        // Create the response frame
-                        let frame = ack.to_frame();
+                            // Create the response frame
+                            let frame = ack.to_frame();
 
-                        println!("Sending Ack: {:#?}", frame);
+                            println!("Sending Ack: {:#?}", frame);
 
-                        // Serialize the Ack into a Frame
-                        match frame.serialize() {
-                            Ok(response) => {
-                                socket.write_all(&response).await?;
-                                socket.flush().await?;
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to serialize response: {:?}", e);
+                            // Serialize the Ack into a Frame
+                            match frame.serialize() {
+                                Ok(response) => {
+                                    socket.write_all(&response).await?;
+                                    socket.flush().await?;
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to serialize response: {:?}", e);
+                                }
                             }
                         }
                     }

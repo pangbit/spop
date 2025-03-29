@@ -40,7 +40,7 @@ impl AgentHello {
 }
 
 /// Structure representing an ACK frame
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Ack {
     pub stream_id: u64,
     pub frame_id: u64,
@@ -63,6 +63,15 @@ impl Ack {
             scope,
             name: name.to_string(),
             value,
+        });
+        self
+    }
+
+    // Adds an unset-var action to the ACK frame
+    pub fn unset_var(mut self, scope: VarScope, name: &str) -> Self {
+        self.actions.push(Action::UnSetVar {
+            scope,
+            name: name.to_string(),
         });
         self
     }

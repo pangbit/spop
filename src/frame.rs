@@ -102,17 +102,14 @@ impl Frame {
 
         // Serialize payload
         match &self.payload {
-            FramePayload::ListOfMessages(_messages) => {
-                serialized.push(0x01); // LIST-OF-MESSAGES
-            }
             FramePayload::ListOfActions(actions) => {
                 // ACTION-SET-VAR  : <SET-VAR:1 byte><NB-ARGS:1 byte><VAR-SCOPE:1 byte><VAR-NAME><VAR-VALUE>
 
                 for action in actions {
+                    let mut action_data = Vec::new();
+
                     match action {
                         Action::SetVar { scope, name, value } => {
-                            let mut action_data = Vec::new();
-
                             // Action type: SET-VAR (1 byte)
                             action_data.push(0x01);
 
@@ -139,12 +136,24 @@ impl Frame {
                                 }
                                 _ => {} // Handle other types if needed
                             }
-
-                            // Append serialized action
-                            serialized.extend(action_data);
                         }
-                        _ => todo!(),
+                        Action::UnSetVar { scope, name } => {
+                            // Action type: UNSET-VAR (1 byte)
+                            action_data.push(0x02);
+
+                            // Number of arguments: 2 (1 byte)
+                            action_data.push(0x02);
+
+                            // Scope (1 byte)
+                            action_data.push(scope.to_u8());
+
+                            // Serialize variable name (length + bytes)
+                            action_data.extend(encode_varint(name.len() as u64));
+                            action_data.extend_from_slice(name.as_bytes());
+                        }
                     }
+
+                    serialized.extend(action_data);
                 }
             }
             FramePayload::KVList(kv_pairs) => {
@@ -181,6 +190,10 @@ impl Frame {
                     serialized.extend(typed_data);
                 }
             }
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Unsupported frame payload type",
+            ))?,
         }
 
         // Prepend frame length

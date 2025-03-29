@@ -29,3 +29,51 @@ just test
 
 The HAProxy configuration is in the `haproxy.cfg` file, and the SPOE
 configuration is in the `spoe-test.conf` file.
+
+## Example
+
+```conf
+global
+    log stdout format raw local0
+    daemon
+
+defaults
+    log     global
+    mode    http
+    option  httplog
+    timeout client 30s
+    timeout connect 10s
+    timeout server 30s
+
+frontend main
+    bind :5000
+    filter spoe engine test config /usr/local/etc/haproxy/spoe-test.conf
+
+    http-after-response set-header X-SPOE-VAR %[var(txn.spoe_test.my_var)]
+
+    default_backend app
+
+backend spoe-test
+    mode tcp
+    server rust-agent 127.0.0.1:12345
+
+backend app
+    mode http
+    http-request return status 200 content-type "text/plain" string "Hello"
+```
+
+And the spoe agent conf:
+
+```conf
+[test]
+spoe-agent test
+    messages    log-request
+    option      var-prefix spoe_test
+    option      continue-on-error
+    timeout     processing 10ms
+    use-backend spoe-test
+
+spoe-message log-request
+    args ip=src country=hdr(CF-IPCountry) user_agent=hdr(User-Agent)
+    event on-frontend-http-request
+```

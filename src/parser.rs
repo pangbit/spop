@@ -3,7 +3,6 @@ use crate::{
     frame::{Frame, FrameFlags, FramePayload, FrameType, Message, Metadata},
     types::{TypedData, typed_data},
 };
-// use hex::encode;
 use nom::{
     Err, IResult, Parser,
     bytes::complete::take,
