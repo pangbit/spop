@@ -1,10 +1,16 @@
 # Set the image name
 IMAGE_NAME := "haproxy-spoe"
 CONTAINER_NAME := "haproxy"
+SOCKET_DIR := "${PWD}/spoa_agent"
 
 # Run HAProxy container with port 5000 exposed
-run: build
-    podman run -d --name {{CONTAINER_NAME}} --network=host {{IMAGE_NAME}}
+run: build prepare
+    podman run -d --name {{CONTAINER_NAME}} --network=host -v {{SOCKET_DIR}}:/var/run/haproxy {{IMAGE_NAME}}
+
+# Ensure the socket directory exists and has proper permissions
+prepare:
+    mkdir -p {{SOCKET_DIR}}
+    chmod -R 777 {{SOCKET_DIR}}
 
 # Build the HAProxy image
 build:

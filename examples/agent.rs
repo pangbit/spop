@@ -50,12 +50,24 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
 
                         // Extract max-frame-size from the frame payload
                         let mut max_frame_size = 0;
+                        let mut is_healthcheck = false;
+
                         if let FramePayload::KVList(kv_pairs) = &frame.payload {
                             for (key, value) in kv_pairs {
-                                if key == "max-frame-size" {
-                                    if let TypedData::UInt32(val) = value {
-                                        max_frame_size = *val;
+                                match key.as_str() {
+                                    "healthcheck" => {
+                                        if let TypedData::Bool(val) = value {
+                                            is_healthcheck = *val;
+                                        }
                                     }
+
+                                    "max-frame-size" => {
+                                        if let TypedData::UInt32(val) = value {
+                                            max_frame_size = *val;
+                                        }
+                                    }
+
+                                    _ => {}
                                 }
                             }
                         }
@@ -80,6 +92,13 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
                             }
                             Err(e) => {
                                 eprintln!("Failed to serialize response: {:?}", e);
+                            }
+                        }
+
+                        if is_healthcheck {
+                            // Shutdown the write side of the socket
+                            if let Err(e) = socket.shutdown().await {
+                                eprintln!("Failed to shutdown socket: {:?}", e);
                             }
                         }
                     }

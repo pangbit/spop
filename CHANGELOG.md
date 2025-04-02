@@ -1,6 +1,9 @@
 Changelog
 =========
 
+## 0.7.0
+- structs for frames 
+
 ## 0.6.0
 - Implemented HAPROXY/AGENT - DISCONNECT
 
