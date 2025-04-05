@@ -1,3 +1,11 @@
+//! # SPOP Library for parsing HAProxy SPOP (Stream Processing Offload Protocol)
+//!
+//! <https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt>
+//!
+//! This crate provides structures, traits, and utilities for working with the SPOP protocol frames,
+//! including the ability to serialize/deserialize frames and handle various frame types such as
+//! `AgentHello`, `HaproxyHello`, and `Ack`. It supports both Unix and TCP-based transports
+//! and provides utilities for creating, parsing, and manipulating SPOP frames.
 pub mod frames;
 pub mod parser;
 
@@ -13,14 +21,14 @@ pub use self::types::TypedData;
 pub mod varint;
 pub use self::varint::{decode_varint, encode_varint};
 
-// core trait for the SPOP frame
+/// core trait for the SPOP frame
 pub trait SpopFrame: std::fmt::Debug + Send {
     fn frame_type(&self) -> &FrameType;
     fn metadata(&self) -> Metadata;
     fn payload(&self) -> FramePayload;
 }
 
-// trait for serializing SPOP frames
+/// trait for serializing SPOP frames
 pub trait SpopFrameExt: SpopFrame {
     fn serialize(&self) -> std::io::Result<Vec<u8>> {
         let mut serialized = Vec::new();
@@ -43,7 +51,7 @@ pub trait SpopFrameExt: SpopFrame {
     }
 }
 
-// Blanket implementation: any type implementing SpopFrame gets SpopFrameExt automatically.
+/// Blanket implementation: any type implementing SpopFrame gets SpopFrameExt automatically.
 impl<T: SpopFrame> SpopFrameExt for T {}
 
 /// Helper function to encode the payload.
