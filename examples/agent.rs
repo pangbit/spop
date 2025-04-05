@@ -8,11 +8,13 @@ use spop::{
     parser::parse_frame,
     types::TypedData,
 };
-use std::{os::unix::fs::PermissionsExt, path::Path};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
 };
+
+#[cfg(unix)]
+use std::{os::unix::fs::PermissionsExt, path::Path};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -37,9 +39,13 @@ async fn main() -> Result<()> {
 
     let listener = UnixListener::bind(socket_path)?;
 
-    // Set permissions to 777 (testing purposes)
-    let perms = std::fs::Permissions::from_mode(0o777);
-    std::fs::set_permissions(socket_path, perms)?;
+    #[cfg(unix)]
+    {
+        // Set permissions to 777 (testing purposes)
+        let perms = std::fs::Permissions::from_mode(0o777);
+        std::fs::set_permissions(socket_path, perms)?;
+    }
+
     println!("SPOE Agent listening on UNIX socket at {}", socket_path);
 
     loop {
