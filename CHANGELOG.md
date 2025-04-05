@@ -1,6 +1,9 @@
 Changelog
 =========
 
+## 0.8.0
+- Using Semver to parse the "supported-versions" field (major.minor)
+
 ## 0.7.0
 - structs for frames
 - SpopFrame trait for frame handling

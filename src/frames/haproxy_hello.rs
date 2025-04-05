@@ -4,6 +4,7 @@ use crate::{
     frames::capabilities::FrameCapabilities,
     types::TypedData,
 };
+use semver::Version;
 use std::{collections::HashMap, convert::TryFrom, str::FromStr};
 
 // 3.2.4. Frame: HAPROXY-HELLO
@@ -52,7 +53,7 @@ use std::{collections::HashMap, convert::TryFrom, str::FromStr};
 // AGENT-DISCONNECT frame must be returned.
 #[derive(Debug)]
 pub struct HaproxyHello {
-    pub supported_versions: Vec<String>,
+    pub supported_versions: Vec<Version>,
     pub max_frame_size: u32,
     pub capabilities: Vec<FrameCapabilities>,
     pub healthcheck: Option<bool>,
@@ -63,9 +64,16 @@ impl HaproxyHello {
     pub fn to_kv_list(&self) -> HashMap<String, TypedData> {
         let mut map = HashMap::new();
 
+        let version_str = self
+            .supported_versions
+            .iter()
+            .map(|v| format!("{}.{}", v.major, v.minor)) // skip patch
+            .collect::<Vec<_>>()
+            .join(", ");
+
         map.insert(
             "supported-versions".to_string(),
-            TypedData::String(self.supported_versions.join(",")),
+            TypedData::String(version_str),
         );
 
         map.insert(
@@ -127,8 +135,17 @@ impl TryFrom<FramePayload> for HaproxyHello {
                 .and_then(|v| match v {
                     TypedData::String(v) => Some(
                         v.split(',')
-                            .map(|s| s.trim().to_string())
-                            .collect::<Vec<_>>(),
+                            .map(|s| {
+                                let trimmed = s.trim();
+                                let padded = if trimmed.matches('.').count() == 1 {
+                                    format!("{}.0", trimmed)
+                                } else {
+                                    trimmed.to_string()
+                                };
+                                Version::parse(&padded)
+                                    .map_err(|e| format!("Invalid version '{}': {}", trimmed, e))
+                            })
+                            .collect::<Result<Vec<_>, _>>(),
                     ),
                     _ => None,
                 })
@@ -172,7 +189,7 @@ impl TryFrom<FramePayload> for HaproxyHello {
             });
 
             Ok(Self {
-                supported_versions,
+                supported_versions: supported_versions?,
                 max_frame_size,
                 capabilities,
                 healthcheck,

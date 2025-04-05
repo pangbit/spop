@@ -1,5 +1,6 @@
 use anyhow::Result;
 use bytes::BytesMut;
+use semver::Version;
 use spop::{
     SpopFrame, SpopFrameExt,
     actions::VarScope,
@@ -8,12 +9,11 @@ use spop::{
     parser::parse_frame,
     types::TypedData,
 };
+use std::{os::unix::fs::PermissionsExt, path::Path};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
 };
-
-use std::{os::unix::fs::PermissionsExt, path::Path};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -84,7 +84,7 @@ async fn handle_connection(mut socket: UnixStream) -> Result<()> {
                         // This is the SPOP version the agent supports. It must follow the format
                         // "Major.Minor" and it must be lower or equal than one of major versions
                         // announced by HAProxy.
-                        let version = "2.0".to_string();
+                        let version = Version::parse("2.0.0")?;
 
                         // Create the AgentHello with the values
                         let agent_hello = AgentHello {

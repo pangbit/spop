@@ -4,6 +4,7 @@ use crate::{
     frames::capabilities::FrameCapabilities,
     types::TypedData,
 };
+use semver::Version;
 use std::collections::HashMap;
 
 // 3.2.5. Frame: AGENT-HELLO
@@ -41,7 +42,7 @@ use std::collections::HashMap;
 // will close the connection at the end of the health check.
 #[derive(Debug)]
 pub struct AgentHello {
-    pub version: String,
+    pub version: Version,
     pub max_frame_size: u32,
     pub capabilities: Vec<FrameCapabilities>,
 }
@@ -62,10 +63,8 @@ impl SpopFrame for AgentHello {
     fn payload(&self) -> FramePayload {
         let mut map = HashMap::new();
 
-        map.insert(
-            "version".to_string(),
-            TypedData::String(self.version.clone()),
-        );
+        let version_str = format!("{}.{}", self.version.major, self.version.minor);
+        map.insert("version".to_string(), TypedData::String(version_str));
 
         map.insert(
             "max-frame-size".to_string(),
