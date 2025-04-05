@@ -9,13 +9,11 @@ use spop::{
     types::TypedData,
 };
 use std::path::Path;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{UnixListener, UnixStream},
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use tokio::net::{UnixListener, UnixStream};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -112,11 +110,12 @@ async fn handle_connection(mut socket: UnixStream) -> Result<()> {
                             }
                         }
 
+                        // If "healthcheck" item was set to TRUE in the HAPROXY-HELLO frame, the
+                        // agent can safely close the connection without DISCONNECT frame. In all
+                        // cases, HAProxy will close the connection at the end of the health check.
                         if is_healthcheck {
-                            // Shutdown the write side of the socket
-                            if let Err(e) = socket.shutdown().await {
-                                eprintln!("Failed to shutdown socket: {:?}", e);
-                            }
+                            println!("Handled healthcheck. Closing socket.");
+                            return Ok(());
                         }
                     }
 
