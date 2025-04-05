@@ -84,7 +84,7 @@ pub struct Frame {
 }
 
 // METADATA    : <FLAGS:4 bytes> <STREAM-ID:varint> <FRAME-ID:varint>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Metadata {
     pub flags: FrameFlags,
     pub stream_id: u64,
@@ -133,7 +133,7 @@ pub struct Message {
     pub args: HashMap<String, TypedData>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FrameFlags(u32);
 
 impl FrameFlags {

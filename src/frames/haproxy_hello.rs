@@ -200,3 +200,76 @@ impl TryFrom<FramePayload> for HaproxyHello {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use semver::Version;
+
+    #[test]
+    fn test_haproxy_hello_frame() {
+        let payload = HaproxyHello {
+            supported_versions: vec![Version::new(2, 0, 0), Version::new(1, 5, 0)],
+            max_frame_size: 1024,
+            capabilities: vec![FrameCapabilities::from_str("pipelining").unwrap()],
+            healthcheck: Some(true),
+            engine_id: Some("engine-123".to_string()),
+        };
+
+        let frame = HaproxyHelloFrame {
+            metadata: Metadata::default(),
+            payload,
+        };
+
+        assert_eq!(frame.frame_type(), &FrameType::HaproxyHello);
+        assert_eq!(frame.metadata().stream_id, 0);
+        assert_eq!(frame.metadata().frame_id, 0);
+        assert_eq!(frame.metadata().flags.is_fin(), false);
+        assert_eq!(
+            frame.payload.supported_versions,
+            vec![Version::new(2, 0, 0), Version::new(1, 5, 0)]
+        );
+        assert_eq!(frame.payload.max_frame_size, 1024);
+        assert_eq!(
+            frame.payload.capabilities,
+            vec![FrameCapabilities::from_str("pipelining").unwrap()]
+        );
+        assert_eq!(frame.payload.healthcheck, Some(true));
+        assert_eq!(frame.payload.engine_id, Some("engine-123".to_string()));
+    }
+
+    #[test]
+    fn test_haproxy_hello_frame_conversion() {
+        let kv_list = HashMap::from([
+            (
+                "supported-versions".to_string(),
+                TypedData::String("2.0, 1.5".to_string()),
+            ),
+            ("max-frame-size".to_string(), TypedData::UInt32(1024)),
+            (
+                "capabilities".to_string(),
+                TypedData::String("pipelining".to_string()),
+            ),
+            ("healthcheck".to_string(), TypedData::Bool(true)),
+            (
+                "engine-id".to_string(),
+                TypedData::String("engine-123".to_string()),
+            ),
+        ]);
+
+        let payload = FramePayload::KVList(kv_list);
+        let haproxy_hello: HaproxyHello = payload.try_into().unwrap();
+
+        assert_eq!(
+            haproxy_hello.supported_versions,
+            vec![Version::new(2, 0, 0), Version::new(1, 5, 0)]
+        );
+        assert_eq!(haproxy_hello.max_frame_size, 1024);
+        assert_eq!(
+            haproxy_hello.capabilities,
+            vec![FrameCapabilities::from_str("pipelining").unwrap()]
+        );
+        assert_eq!(haproxy_hello.healthcheck, Some(true));
+        assert_eq!(haproxy_hello.engine_id, Some("engine-123".to_string()));
+    }
+}

@@ -14,7 +14,7 @@ use std::{fmt, str::FromStr};
 // Unsupported or unknown capabilities are silently ignored, when possible.
 //
 // NOTE: Fragmentation and async capabilities were deprecated and are now ignored.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FrameCapabilities {
     Pipelining,
 }
@@ -38,5 +38,20 @@ impl fmt::Display for FrameCapabilities {
             // Add more capabilities here when needed
         };
         write!(f, "{}", s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_frame_capabilities() {
+        assert_eq!(
+            FrameCapabilities::from_str("pipelining").unwrap(),
+            FrameCapabilities::Pipelining
+        );
+        assert_eq!(FrameCapabilities::Pipelining.to_string(), "pipelining");
+        assert!(FrameCapabilities::from_str("unknown").is_err());
     }
 }
