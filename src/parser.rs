@@ -1,7 +1,11 @@
 use crate::{
-    decode_varint,
-    frame::{Frame, FrameFlags, FramePayload, FrameType, Message, Metadata},
+    SpopFrame,
+    frame::{FrameFlags, FramePayload, FrameType, Message, Metadata},
+    frames::haproxy_disconnect::{HaproxyDisconnect, HaproxyDisconnectFrame},
+    frames::haproxy_hello::{HaproxyHello, HaproxyHelloFrame},
+    frames::notify::NotifyFrame,
     types::{TypedData, typed_data},
+    varint::decode_varint,
 };
 use nom::{
     Err, IResult, Parser,
@@ -11,9 +15,10 @@ use nom::{
     multi::{many_m_n, many0},
     number::streaming::{be_u8, be_u32},
 };
+use std::collections::HashMap;
 
 // https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt
-pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
+pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Box<dyn SpopFrame>> {
     // Exchange between HAProxy and agents are made using FRAME packets. All frames must be
     // prefixed with their size encoded on 4 bytes in network byte order:
     // <FRAME-LENGTH:4 bytes> <FRAME>
@@ -78,21 +83,50 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
     //
     let frame_payload = frame;
 
-    let payload = match frame_type {
+    match frame_type {
         // 3.2.4. Frame: HAPROXY-HELLO
         // This frame is the first one exchanged between HAProxy and an agent, when the connection
         // is established.
         //
+        // The payload of this frame is a KV-LIST. STREAM-ID and FRAME-ID are must be set 0.
+        FrameType::HaproxyHello => {
+            let mut parser = all_consuming(parse_key_value_pairs);
+
+            let (_, payload) = parser.parse(frame_payload)?;
+
+            // check mandatory items
+            let hello = HaproxyHello::try_from(payload)
+                .map_err(|_| nom::Err::Error(Error::new(input, ErrorKind::Tag)))?;
+
+            let frame = HaproxyHelloFrame {
+                metadata,
+                payload: hello,
+            };
+
+            Ok((remaining, Box::new(frame)))
+        }
+
         // 3.2.8. Frame: HAPROXY-DISCONNECT
         // If an error occurs, at anytime, from the HAProxy side, a HAPROXY-DISCONNECT frame is
         // sent with information describing the error. HAProxy will wait an AGENT-DISCONNECT frame
         // in reply. All other frames will be ignored. The agent must then close the socket.
         //
         // The payload of this frame is a KV-LIST. STREAM-ID and FRAME-ID are must be set 0.
-        FrameType::HaproxyHello | FrameType::HaproxyDisconnect => {
+        FrameType::HaproxyDisconnect => {
             let mut parser = all_consuming(parse_key_value_pairs);
+
             let (_, payload) = parser.parse(frame_payload)?;
-            payload
+
+            // check mandatory items
+            let disconnect = HaproxyDisconnect::try_from(payload)
+                .map_err(|_| nom::Err::Error(Error::new(input, ErrorKind::Tag)))?;
+
+            let frame = HaproxyDisconnectFrame {
+                metadata,
+                payload: disconnect,
+            };
+
+            Ok((remaining, Box::new(frame)))
         }
 
         // 3.2.6. Frame: NOTIFY
@@ -102,22 +136,18 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
         // The payload of NOTIFY frames is a LIST-OF-MESSAGES.
         FrameType::Notify => {
             let mut parser = all_consuming(parse_list_of_messages);
-            let (_, payload) = parser.parse(frame_payload)?;
-            payload
+
+            let (_, messages) = parser.parse(frame_payload)?;
+
+            let frame = NotifyFrame { metadata, messages };
+
+            Ok((remaining, Box::new(frame)))
         }
 
         // Unknown frames may be silently skipped or trigger an error, depending on the
         // implementation.
-        _ => return Err(nom::Err::Failure(Error::new(input, ErrorKind::NoneOf))),
-    };
-
-    let frame = Frame {
-        frame_type,
-        metadata,
-        payload,
-    };
-
-    Ok((remaining, frame))
+        _ => Err(nom::Err::Failure(Error::new(input, ErrorKind::NoneOf))),
+    }
 }
 
 /// Parse entire KV-LIST payload
@@ -128,7 +158,17 @@ fn parse_key_value_pairs(input: &[u8]) -> IResult<&[u8], FramePayload> {
     // Execute the parser with the input
     let (input, pairs) = parser.parse(input)?;
 
-    Ok((input, FramePayload::KVList(pairs)))
+    let mut map = HashMap::new();
+
+    // handle duplicate keys
+    for (key, value) in pairs {
+        if map.contains_key(&key) {
+            return Err(nom::Err::Failure(Error::new(input, ErrorKind::Tag)));
+        }
+        map.insert(key, value);
+    }
+
+    Ok((input, FramePayload::KVList(map)))
 }
 
 /// Parse a key-value pair (used in KV-LIST)
@@ -169,7 +209,7 @@ fn parse_string(input: &[u8]) -> IResult<&[u8], String> {
 ///
 /// LIST-OF-MESSAGES : [ <MESSAGE-NAME> <NB-ARGS:1 byte> <KV-LIST> ... ]
 /// MESSAGE-NAME     : <STRING>
-fn parse_list_of_messages(input: &[u8]) -> IResult<&[u8], FramePayload> {
+fn parse_list_of_messages(input: &[u8]) -> IResult<&[u8], Vec<Message>> {
     let (remaining, message) = parse_string(input)?;
 
     let (remaining, nb_args_bytes) = take(1usize)(remaining)?;
@@ -180,10 +220,20 @@ fn parse_list_of_messages(input: &[u8]) -> IResult<&[u8], FramePayload> {
 
     let (remaining, kv_list) = parser.parse(remaining)?;
 
+    let mut map = HashMap::new();
+
+    // handle duplicate keys
+    for (key, value) in kv_list {
+        if map.contains_key(&key) {
+            return Err(nom::Err::Failure(Error::new(input, ErrorKind::Tag)));
+        }
+        map.insert(key, value);
+    }
+
     let msg = Message {
         name: message,
-        args: kv_list,
+        args: map,
     };
 
-    Ok((remaining, FramePayload::ListOfMessages(vec![msg])))
+    Ok((remaining, vec![msg]))
 }

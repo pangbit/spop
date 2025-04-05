@@ -2,7 +2,9 @@ Changelog
 =========
 
 ## 0.7.0
-- structs for frames 
+- structs for frames
+- SpopFrame trait for frame handling
+- SpopFrameExt for serializing the frames
 
 ## 0.6.0
 - Implemented HAPROXY/AGENT - DISCONNECT

@@ -1,5 +1,6 @@
-use crate::{encode_varint, types::TypedData};
+use crate::{actions::Action, types::TypedData, varint::encode_varint};
 use nom::error::ErrorKind;
+use std::collections::HashMap;
 
 // 3.2.2. Frame types overview
 // ----------------------------
@@ -82,131 +83,8 @@ pub struct Frame {
     pub payload: FramePayload,
 }
 
-impl Frame {
-    pub const fn new(frame_type: FrameType, metadata: Metadata, payload: FramePayload) -> Self {
-        Self {
-            frame_type,
-            metadata,
-            payload,
-        }
-    }
-
-    pub fn serialize(&self) -> std::io::Result<Vec<u8>> {
-        let mut serialized = Vec::new();
-
-        // Serialize frame type (1 byte)
-        serialized.push(self.frame_type.to_u8());
-
-        // Serialize metadata
-        serialized.extend(self.metadata.serialize());
-
-        // Serialize payload
-        match &self.payload {
-            FramePayload::ListOfActions(actions) => {
-                // ACTION-SET-VAR  : <SET-VAR:1 byte><NB-ARGS:1 byte><VAR-SCOPE:1 byte><VAR-NAME><VAR-VALUE>
-
-                for action in actions {
-                    let mut action_data = Vec::new();
-
-                    match action {
-                        Action::SetVar { scope, name, value } => {
-                            // Action type: SET-VAR (1 byte)
-                            action_data.push(0x01);
-
-                            // Number of arguments: 3 (1 byte)
-                            action_data.push(0x03);
-
-                            // Scope (1 byte)
-                            action_data.push(scope.to_u8());
-
-                            // Serialize variable name (length + bytes)
-                            action_data.extend(encode_varint(name.len() as u64));
-                            action_data.extend_from_slice(name.as_bytes());
-
-                            // Serialize variable value based on type
-                            match value {
-                                TypedData::String(val) => {
-                                    action_data.push(0x08); // STRING type
-                                    action_data.extend(encode_varint(val.len() as u64));
-                                    action_data.extend_from_slice(val.as_bytes());
-                                }
-                                TypedData::UInt32(val) => {
-                                    action_data.push(0x03); // UINT32 type
-                                    action_data.extend(encode_varint(*val as u64));
-                                }
-                                _ => {} // Handle other types if needed
-                            }
-                        }
-                        Action::UnSetVar { scope, name } => {
-                            // Action type: UNSET-VAR (1 byte)
-                            action_data.push(0x02);
-
-                            // Number of arguments: 2 (1 byte)
-                            action_data.push(0x02);
-
-                            // Scope (1 byte)
-                            action_data.push(scope.to_u8());
-
-                            // Serialize variable name (length + bytes)
-                            action_data.extend(encode_varint(name.len() as u64));
-                            action_data.extend_from_slice(name.as_bytes());
-                        }
-                    }
-
-                    serialized.extend(action_data);
-                }
-            }
-            FramePayload::KVList(kv_pairs) => {
-                for (key, value) in kv_pairs {
-                    // <KEY-LENGTH><KEY><VALUE-TYPE><VALUE-LNGTH><VALUE>
-
-                    let mut typed_data = Vec::new();
-
-                    // use encode_varint for the length of the key
-                    typed_data.extend(encode_varint(key.len() as u64));
-
-                    // serialize the key
-                    typed_data.extend_from_slice(key.as_bytes());
-
-                    match value {
-                        TypedData::String(val) => {
-                            // STRING: <8><LENGTH:varint><BYTES>
-                            typed_data.push(0x08);
-                            // use encode_varint for the length of the value
-                            typed_data.extend(encode_varint(val.len() as u64));
-                            // serialize the value
-                            typed_data.extend_from_slice(val.as_bytes());
-                        }
-                        TypedData::UInt32(val) => {
-                            // UINT32: <3><VALUE:varint>
-                            typed_data.push(0x03);
-                            // use encode_varint for the length of the value
-                            typed_data.extend(encode_varint(*val as u64));
-                        }
-                        _ => {}
-                    }
-
-                    // append to serialized
-                    serialized.extend(typed_data);
-                }
-            }
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Unsupported frame payload type",
-            ))?,
-        }
-
-        // Prepend frame length
-        let frame_len = serialized.len() as u32;
-        let mut output = frame_len.to_be_bytes().to_vec();
-        output.extend(serialized);
-
-        Ok(output)
-    }
-}
-
 // METADATA    : <FLAGS:4 bytes> <STREAM-ID:varint> <FRAME-ID:varint>
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Metadata {
     pub flags: FrameFlags,
     pub stream_id: u64,
@@ -246,106 +124,16 @@ impl Metadata {
 pub enum FramePayload {
     ListOfMessages(Vec<Message>),
     ListOfActions(Vec<Action>),
-    KVList(Vec<(String, TypedData)>),
+    KVList(HashMap<String, TypedData>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Message {
     pub name: String,
-    pub args: Vec<(String, TypedData)>,
-}
-
-// 3.4. Actions
-// -------------
-//
-// An agent must acknowledge each NOTIFY frame by sending the corresponding ACK
-// frame. Actions can be added in these frames to dynamically take action on the
-// processing of a stream.
-//
-// Here is the list of supported actions:
-//
-//   * set-var    set the value for an existing variable. 3 arguments must be
-//                attached to this action: the variable scope (proc, sess, txn,
-//                req or res), the variable name (a string) and its value.
-//
-//     ACTION-SET-VAR  : <SET-VAR:1 byte><NB-ARGS:1 byte><VAR-SCOPE:1 byte><VAR-NAME><VAR-VALUE>
-//
-//     SET-VAR     : <1>
-//     NB-ARGS     : <3>
-//     VAR-SCOPE   : <PROCESS> | <SESSION> | <TRANSACTION> | <REQUEST> | <RESPONSE>
-//     VAR-NAME    : <STRING>
-//     VAR-VALUE   : <TYPED-DATA>
-//
-//     PROCESS     : <0>
-//     SESSION     : <1>
-//     TRANSACTION : <2>
-//     REQUEST     : <3>
-//     RESPONSE    : <4>
-//
-//   * unset-var    unset the value for an existing variable. 2 arguments must be
-//                  attached to this action: the variable scope (proc, sess, txn,
-//                  req or res) and the variable name (a string).
-//
-//     ACTION-UNSET-VAR  : <UNSET-VAR:1 byte><NB-ARGS:1 byte><VAR-SCOPE:1 byte><VAR-NAME>
-//
-//     UNSET-VAR   : <2>
-//     NB-ARGS     : <2>
-//     VAR-SCOPE   : <PROCESS> | <SESSION> | <TRANSACTION> | <REQUEST> | <RESPONSE>
-//     VAR-NAME    : <STRING>
-//
-//     PROCESS     : <0>
-//     SESSION     : <1>
-//     TRANSACTION : <2>
-//     REQUEST     : <3>
-//     RESPONSE    : <4>
-//
-//
-// NOTE: Name of the variables will be automatically prefixed by HAProxy to avoid
-//       name clashes with other variables used in HAProxy. Moreover, unknown
-//       variable will be silently ignored.
-#[derive(Debug, Clone)]
-pub enum VarScope {
-    Process = 0,
-    Session = 1,
-    Transaction = 2,
-    Request = 3,
-    Response = 4,
-}
-
-impl VarScope {
-    /// Converts FrameType to its corresponding u8 value
-    pub const fn to_u8(&self) -> u8 {
-        match self {
-            Self::Process => 0,
-            Self::Session => 1,
-            Self::Transaction => 2,
-            Self::Request => 3,
-            Self::Response => 4,
-        }
-    }
+    pub args: HashMap<String, TypedData>,
 }
 
 #[derive(Debug, Clone)]
-pub enum Action {
-    SetVar {
-        scope: VarScope,
-        name: String,
-        value: TypedData,
-    },
-    UnSetVar {
-        scope: VarScope,
-        name: String,
-    },
-}
-
-//
-// #[derive(Debug)]
-// pub struct Action {
-//     pub action_type: u8,
-//     pub args: Vec<TypedData>,
-// }
-
-#[derive(Debug)]
 pub struct FrameFlags(u32);
 
 impl FrameFlags {

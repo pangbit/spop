@@ -1,29 +1,61 @@
 use anyhow::Result;
 use bytes::BytesMut;
 use spop::{
-    frame::{FramePayload, FrameType, VarScope},
+    SpopFrame, SpopFrameExt,
+    actions::VarScope,
+    frame::{FramePayload, FrameType},
+    frames::{Ack, AgentDisconnect, AgentHello, HaproxyHello},
     parser::parse_frame,
-    serialize::{Ack, AgentDisconnect, AgentHello},
     types::TypedData,
 };
+use std::{os::unix::fs::PermissionsExt, path::Path};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
+    net::{UnixListener, UnixStream},
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let listener = TcpListener::bind("0.0.0.0:12345").await?;
-    println!("SPOE Agent listening on port 12345...");
+    // to use TCP, uncomment the following lines, and add
+    // net::{TcpListener, TcpStream}
+    //
+    // let listener = TcpListener::bind("0.0.0.0:12345").await?;
+    // println!("SPOE Agent listening on port 12345...");
+    //
+    // loop {
+    //     let (socket, addr) = listener.accept().await?;
+    //     println!("New connection from {}", addr);
+    //     tokio::spawn(handle_connection(socket));
+    // }
+
+    let socket_path = "spoa_agent/spoa.sock";
+
+    // Clean up the socket if it already exists
+    if Path::new(socket_path).exists() {
+        std::fs::remove_file(socket_path)?;
+    }
+
+    let listener = UnixListener::bind(socket_path)?;
+
+    // Set permissions to 777 (testing purposes)
+    let perms = std::fs::Permissions::from_mode(0o777);
+    std::fs::set_permissions(socket_path, perms)?;
+    println!("SPOE Agent listening on UNIX socket at {}", socket_path);
 
     loop {
-        let (socket, addr) = listener.accept().await?;
-        println!("New connection from {}", addr);
-        tokio::spawn(handle_connection(socket));
+        match listener.accept().await {
+            Ok((stream, _)) => {
+                println!("New UNIX connection from {:?}", stream);
+                tokio::spawn(handle_connection(stream));
+            }
+            Err(e) => {
+                eprintln!("Failed to accept connection: {:?}", e);
+            }
+        }
     }
 }
 
-async fn handle_connection(mut socket: TcpStream) -> Result<()> {
+async fn handle_connection(mut socket: UnixStream) -> Result<()> {
     let mut buffer = BytesMut::with_capacity(4096);
 
     loop {
@@ -39,38 +71,19 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
             Ok((_, frame)) => {
                 println!("Parsed frame: {:?}", frame);
 
-                match frame.frame_type {
+                match frame.frame_type() {
                     // Respond with AgentHello frame
                     FrameType::HaproxyHello => {
+                        let hello = HaproxyHello::try_from(frame.payload())
+                            .map_err(|_| anyhow::anyhow!("Failed to parse HaproxyHello"))?;
+
+                        let max_frame_size = hello.max_frame_size;
+                        let is_healthcheck = hello.healthcheck.unwrap_or(false);
                         // * "version"    <STRING>
                         // This is the SPOP version the agent supports. It must follow the format
                         // "Major.Minor" and it must be lower or equal than one of major versions
                         // announced by HAProxy.
                         let version = "2.0".to_string();
-
-                        // Extract max-frame-size from the frame payload
-                        let mut max_frame_size = 0;
-                        let mut is_healthcheck = false;
-
-                        if let FramePayload::KVList(kv_pairs) = &frame.payload {
-                            for (key, value) in kv_pairs {
-                                match key.as_str() {
-                                    "healthcheck" => {
-                                        if let TypedData::Bool(val) = value {
-                                            is_healthcheck = *val;
-                                        }
-                                    }
-
-                                    "max-frame-size" => {
-                                        if let TypedData::UInt32(val) = value {
-                                            max_frame_size = *val;
-                                        }
-                                    }
-
-                                    _ => {}
-                                }
-                            }
-                        }
 
                         // Create the AgentHello with the values
                         let agent_hello = AgentHello {
@@ -79,13 +92,10 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
                             capabilities: vec![], // Empty capabilities for now
                         };
 
-                        // Create the response frame
-                        let frame = agent_hello.to_frame();
-
-                        println!("Sending AgentHello: {:#?}", frame);
+                        println!("Sending AgentHello: {:#?}", agent_hello.payload());
 
                         // Serialize the AgentHello into a Frame
-                        match frame.serialize() {
+                        match agent_hello.serialize() {
                             Ok(response) => {
                                 socket.write_all(&response).await?;
                                 socket.flush().await?;
@@ -110,13 +120,10 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
                             message: "Goodbye".to_string(),
                         };
 
-                        // Create the response frame
-                        let frame = agent_disconnect.to_frame();
-
-                        println!("Sending AgentDisconnect: {:#?}", frame);
+                        println!("Sending AgentDisconnect: {:#?}", agent_disconnect.payload());
 
                         // Serialize the AgentDisconnect into a Frame
-                        match frame.serialize() {
+                        match agent_disconnect.serialize() {
                             Ok(response) => {
                                 socket.write_all(&response).await?;
                                 socket.flush().await?;
@@ -134,7 +141,7 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
 
                     // Respond with Ack frame
                     FrameType::Notify => {
-                        if let FramePayload::ListOfMessages(messages) = &frame.payload {
+                        if let FramePayload::ListOfMessages(messages) = &frame.payload() {
                             let mut vars = Vec::new();
 
                             for message in messages {
@@ -164,17 +171,15 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
 
                             // Create the Ack frame
                             let ack = vars.into_iter().fold(
-                                Ack::new(frame.metadata.stream_id, frame.metadata.frame_id),
+                                Ack::new(frame.metadata().stream_id, frame.metadata().frame_id),
                                 |ack, (scope, name, value)| ack.set_var(scope, name, value),
                             );
 
                             // Create the response frame
-                            let frame = ack.to_frame();
-
-                            println!("Sending Ack: {:#?}", frame);
+                            println!("Sending Ack: {:#?}", frame.payload());
 
                             // Serialize the Ack into a Frame
-                            match frame.serialize() {
+                            match ack.serialize() {
                                 Ok(response) => {
                                     socket.write_all(&response).await?;
                                     socket.flush().await?;
@@ -187,7 +192,7 @@ async fn handle_connection(mut socket: TcpStream) -> Result<()> {
                     }
 
                     _ => {
-                        eprintln!("Unsupported frame type: {:?}", frame.frame_type);
+                        eprintln!("Unsupported frame type: {:?}", frame.frame_type());
                     }
                 }
             }

@@ -1,4 +1,4 @@
-use crate::decode_varint;
+use crate::varint::decode_varint;
 use nom::{
     IResult,
     bytes::complete::take,

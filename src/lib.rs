@@ -1,256 +1,143 @@
-pub mod frame;
+pub mod frames;
 pub mod parser;
-pub mod serialize;
+
+pub mod actions;
+pub use self::actions::{Action, VarScope};
+
+pub mod frame;
+pub use self::frame::{Frame, FrameFlags, FramePayload, FrameType, Metadata};
+
 pub mod types;
+pub use self::types::TypedData;
 
-use nom::{IResult, number::complete::be_u8};
+pub mod varint;
+pub use self::varint::{decode_varint, encode_varint};
 
-// https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L659-L666
-//
-// Variable-length integer (varint) are encoded using Peers encoding:
-//
-//
-//        0  <= X < 240        : 1 byte  (7.875 bits)  [ XXXX XXXX ]
-//       240 <= X < 2288       : 2 bytes (11 bits)     [ 1111 XXXX ] [ 0XXX XXXX ]
-//      2288 <= X < 264432     : 3 bytes (18 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]   [ 0XXX XXXX ]
-//    264432 <= X < 33818864   : 4 bytes (25 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]*2 [ 0XXX XXXX ]
-//  33818864 <= X < 4328786160 : 5 bytes (32 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]*3 [ 0XXX XXXX ]
-//  ...
-//
-// For booleans, the value (true or false) is the first bit in the FLAGS
-// bitfield. if this bit is set to 0, then the boolean is evaluated as false,
-// otherwise, the boolean is evaluated as true.
-//
-// Encoding a varint
-pub fn encode_varint(i: u64) -> Vec<u8> {
-    let mut buf = Vec::new();
-
-    if i < 240 {
-        buf.push(i as u8);
-    } else {
-        buf.push((i | 240) as u8);
-        let mut i = (i - 240) >> 4;
-
-        while i >= 128 {
-            buf.push((i | 128) as u8);
-            i = (i - 128) >> 7;
-        }
-
-        buf.push(i as u8);
-    }
-
-    buf
+// core trait for the SPOP frame
+pub trait SpopFrame: std::fmt::Debug + Send {
+    fn frame_type(&self) -> &FrameType;
+    fn metadata(&self) -> Metadata;
+    fn payload(&self) -> FramePayload;
 }
 
-// Decoding a varint
-pub fn decode_varint(input: &[u8]) -> IResult<&[u8], u64> {
-    let (mut input, first_byte) = be_u8(input)?;
+// trait for serializing SPOP frames
+pub trait SpopFrameExt: SpopFrame {
+    fn serialize(&self) -> std::io::Result<Vec<u8>> {
+        let mut serialized = Vec::new();
 
-    if first_byte < 240 {
-        return Ok((input, first_byte as u64));
+        // frame type (1 byte)
+        serialized.push(self.frame_type().to_u8());
+
+        // Metadata
+        serialized.extend(self.metadata().serialize());
+
+        // payload
+        encode_payload(&self.payload(), &mut serialized)?;
+
+        // Prepend frame length
+        let frame_len = serialized.len() as u32;
+        let mut output = frame_len.to_be_bytes().to_vec();
+        output.extend(serialized);
+
+        Ok(output)
     }
-
-    let mut value = first_byte as u64;
-    let mut shift = 4;
-
-    loop {
-        let (new_input, next_byte) = be_u8(input)?;
-        input = new_input;
-
-        value += (next_byte as u64) << shift;
-        shift += 7;
-
-        if next_byte < 128 {
-            break;
-        }
-    }
-
-    Ok((input, value))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// Blanket implementation: any type implementing SpopFrame gets SpopFrameExt automatically.
+impl<T: SpopFrame> SpopFrameExt for T {}
 
-    #[test]
-    fn test_decode_varint() {
-        assert_eq!(decode_varint(&[0x00]), Ok((&[][..], 0)));
+/// Helper function to encode the payload.
+/// It supports ListOfActions and KVList payloads.
+fn encode_payload(payload: &FramePayload, buf: &mut Vec<u8>) -> std::io::Result<()> {
+    match payload {
+        FramePayload::ListOfActions(actions) => {
+            // ACTION-SET-VAR  : <SET-VAR:1 byte><NB-ARGS:1 byte><VAR-SCOPE:1 byte><VAR-NAME><VAR-VALUE>
 
-        assert_eq!(decode_varint(&[0x01]), Ok((&[][..], 1)));
+            for action in actions {
+                match action {
+                    Action::SetVar { scope, name, value } => {
+                        // Action type: SET-VAR (1 byte)
+                        buf.push(0x01);
 
-        assert_eq!(decode_varint(&[0x0F]), Ok((&[][..], 15)));
+                        // Number of arguments: 3 (1 byte)
+                        buf.push(0x03);
 
-        assert_eq!(decode_varint(&[0xEF, 0x01]), Ok((&[0x01][..], 239)));
+                        // Scope (1 byte)
+                        buf.push(scope.to_u8());
 
-        assert_eq!(decode_varint(&[0xF0, 0x00]), Ok((&[][..], 240)));
+                        // Serialize variable name (length + bytes)
+                        buf.extend(encode_varint(name.len() as u64));
+                        buf.extend_from_slice(name.as_bytes());
 
-        assert_eq!(decode_varint(&[0xF1, 0x00]), Ok((&[][..], 241)));
+                        // Serialize variable value based on type
+                        match value {
+                            TypedData::String(val) => {
+                                buf.push(0x08); // STRING type
+                                buf.extend(encode_varint(val.len() as u64));
+                                buf.extend_from_slice(val.as_bytes());
+                            }
+                            TypedData::UInt32(val) => {
+                                buf.push(0x03); // UINT32 type
+                                buf.extend(encode_varint(*val as u64));
+                            }
+                            _ => {} // Handle other types if needed
+                        }
+                    }
+                    Action::UnSetVar { scope, name } => {
+                        // Action type: UNSET-VAR (1 byte)
+                        buf.push(0x02);
 
-        assert_eq!(decode_varint(&[0xFC, 0x03]), Ok((&[][..], 300)));
+                        // Number of arguments: 2 (1 byte)
+                        buf.push(0x02);
 
-        assert_eq!(decode_varint(&[0xFF, 0x7F]), Ok((&[][..], 2287)));
+                        // Scope (1 byte)
+                        buf.push(scope.to_u8());
 
-        assert_eq!(decode_varint(&[0xF0, 0x80, 0x00]), Ok((&[][..], 2288)));
+                        // Serialize variable name (length + bytes)
+                        buf.extend(encode_varint(name.len() as u64));
+                        buf.extend_from_slice(name.as_bytes());
+                    }
+                }
+            }
+        }
 
-        assert_eq!(decode_varint(&[0xF4, 0x88, 0x00]), Ok((&[][..], 2420)));
+        FramePayload::KVList(kv_pairs) => {
+            for (key, value) in kv_pairs {
+                // <KEY-LENGTH><KEY><VALUE-TYPE><VALUE-LNGTH><VALUE>
 
-        assert_eq!(
-            decode_varint(&[0xF0, 0x80, 0x80, 0x0]),
-            Ok((&[][..], 264432))
-        );
+                // use encode_varint for the length of the key
+                buf.extend(encode_varint(key.len() as u64));
 
-        assert_eq!(
-            decode_varint(&[0xF0, 0x80, 0x80, 0x80, 0x0]),
-            Ok((&[][..], 33818864))
-        );
-    }
+                // serialize the key
+                buf.extend_from_slice(key.as_bytes());
 
-    #[test]
-    fn test_varint_1_byte() {
-        // 1-byte encoding: 0 <= X < 240
-        let data = [0x10]; // 16 in decimal
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 16);
+                match value {
+                    TypedData::String(val) => {
+                        // STRING: <8><LENGTH:varint><BYTES>
+                        buf.push(0x08);
+                        // use encode_varint for the length of the value
+                        buf.extend(encode_varint(val.len() as u64));
+                        // serialize the value
+                        buf.extend_from_slice(val.as_bytes());
+                    }
+                    TypedData::UInt32(val) => {
+                        // UINT32: <3><VALUE:varint>
+                        buf.push(0x03);
+                        // use encode_varint for the length of the value
+                        buf.extend(encode_varint(*val as u64));
+                    }
+                    _ => {}
+                }
+            }
+        }
 
-        let data = [0xEF]; // 239 in decimal (max 1-byte)
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 239);
-
-        assert_eq!(decode_varint(&[239]), Ok((&[][..], 239))); // 1 byte test.
-    }
-
-    #[test]
-    fn test_varint_2_bytes() {
-        // 2-byte encoding: 240 <= X < 2288
-        let data = [0xF0, 0x00]; // 240
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 240);
-
-        let data = [0xF1, 0x00]; // 241
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 241);
-
-        let data = [0xFC, 0x03]; // 243
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 300);
-
-        let data = [0xFF, 0x7F]; // 2287 (max 2-byte)
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 2287);
-
-        assert_eq!(decode_varint(&[250, 0]), Ok((&[][..], 250))); // 2 bytes test.
-        assert_eq!(decode_varint(&[255, 127]), Ok((&[][..], 2287))); // 2 bytes test.
-    }
-
-    #[test]
-    fn test_varint_3_bytes() {
-        // 3-byte encoding: 2288 <= X < 264432
-        assert_eq!(decode_varint(&[240, 128, 0]), Ok((&[][..], 2288)));
-
-        let data = [0xF0, 0x80, 0x00]; // 2288
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 2288);
-
-        let data = [0xF4, 0x88, 0x00]; // 2420
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 2420);
-
-        let data = [0xFF, 0xFF, 0x7F]; // 264431 (max 3-byte)
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 264431);
-
-        assert_eq!(decode_varint(&[244, 136, 0]), Ok((&[][..], 2420))); // 3 bytes test.
-        assert_eq!(decode_varint(&[255, 0xFF, 0x7F]), Ok((&[][..], 264431))); // 3 bytes test.
-    }
-
-    #[test]
-    fn test_varint_4_bytes() {
-        // 4-byte encoding: 264432 <= X < 33818864
-        let data = [0xF0, 0x80, 0x80, 0x00]; // 264432
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 264432);
-
-        let data = [0xF0, 0xF4, 0xFE, 0x04]; // Random middle value
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 1572912);
-
-        let data = [0xFF, 0xFF, 0xFF, 0x7F]; // 33818863 (max 4-byte)
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 33818863);
-    }
-
-    #[test]
-    fn test_varint_5_bytes() {
-        // 5-byte encoding: 33818864 <= X < 4328786160
-        let data = [0xF0, 0x80, 0x80, 0x80, 0x00]; // 33818864
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 33818864);
-
-        let data = [0xF0, 0xDC, 0xAC, 0xB0, 0x07]; // Random middle value
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 281374384);
-
-        let data = [0xFF, 0xFF, 0xFF, 0xFF, 0x7F]; // 4328786159 (max 5-byte)
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 4328786159);
-    }
-
-    #[test]
-    fn test_varint_6_bytes() {
-        // 6-byte encoding: 4328786160 <= X
-        let data = [0xF0, 0x80, 0x80, 0x80, 0x80, 0x00]; // 4328786160
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 4328786160);
-
-        let data = [0xF1, 0x80, 0x80, 0x80, 0x80, 0x00]; // 4328786161
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 4328786161);
-
-        let data = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F];
-        let (_, value) = decode_varint(&data).unwrap();
-        assert_eq!(value, 554084600047);
-    }
-
-    #[test]
-    fn test_encode_decode_varint() {
-        // Test cases to cover all different byte ranges
-        let test_values: Vec<u64> = vec![
-            0,           // 1 byte
-            239,         // 1 byte
-            240,         // 2 bytes
-            2287,        // 2 bytes
-            2288,        // 3 bytes
-            264432,      // 4 bytes
-            4328786160,  // 5 bytes
-            10000000000, // Large value
-        ];
-
-        for &value in &test_values {
-            // Encode the value
-            let encoded = encode_varint(value);
-
-            // Decode the encoded value
-            let (remaining_input, decoded) = decode_varint(&encoded).unwrap();
-
-            // Assert that the decoded value matches the original
-            assert_eq!(value, decoded);
-
-            // Ensure there is no extra data left after decoding
-            assert!(
-                remaining_input.is_empty(),
-                "Remaining input should be empty"
-            );
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Unsupported frame payload type",
+            ));
         }
     }
 
-    #[test]
-    fn test_encode_decode_varint_loop() {
-        // Test encoding and decoding a large number of values
-        for i in 0..300000 {
-            let encoded = encode_varint(i);
-            let (remaining_input, decoded) = decode_varint(&encoded).unwrap();
-            assert_eq!(i, decoded, "Failed for value: {}", i);
-            assert!(remaining_input.is_empty());
-        }
-    }
+    Ok(())
 }

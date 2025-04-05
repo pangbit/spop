@@ -47,4 +47,4 @@ fmt:
 
 # Run the example
 agent:
-  cargo watch -x 'run --example agent'
+  cargo watch --ignore spoa_agent/ -x 'run --example agent'
