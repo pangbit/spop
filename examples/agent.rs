@@ -8,13 +8,14 @@ use spop::{
     parser::parse_frame,
     types::TypedData,
 };
+use std::path::Path;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
 };
 
 #[cfg(unix)]
-use std::{os::unix::fs::PermissionsExt, path::Path};
+use std::os::unix::fs::PermissionsExt;
 
 #[tokio::main]
 async fn main() -> Result<()> {
