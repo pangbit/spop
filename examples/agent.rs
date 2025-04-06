@@ -95,17 +95,7 @@ async fn handle_connection(mut socket: UnixStream) -> Result<()> {
                         };
 
                         println!("Sending AgentHello: {:#?}", agent_hello.payload());
-
-                        // Serialize the AgentHello into a Frame
-                        match agent_hello.serialize() {
-                            Ok(response) => {
-                                socket.write_all(&response).await?;
-                                socket.flush().await?;
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to serialize response: {:?}", e);
-                            }
-                        }
+                        socket.write_all(&agent_hello.serialize()?).await?;
 
                         // If "healthcheck" item was set to TRUE in the HAPROXY-HELLO frame, the
                         // agent can safely close the connection without DISCONNECT frame. In all
@@ -125,16 +115,7 @@ async fn handle_connection(mut socket: UnixStream) -> Result<()> {
 
                         println!("Sending AgentDisconnect: {:#?}", agent_disconnect.payload());
 
-                        // Serialize the AgentDisconnect into a Frame
-                        match agent_disconnect.serialize() {
-                            Ok(response) => {
-                                socket.write_all(&response).await?;
-                                socket.flush().await?;
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to serialize response: {:?}", e);
-                            }
-                        }
+                        socket.write_all(&agent_disconnect.serialize()?).await?;
 
                         // Shutdown the write side of the socket
                         if let Err(e) = socket.shutdown().await {
@@ -180,17 +161,7 @@ async fn handle_connection(mut socket: UnixStream) -> Result<()> {
 
                             // Create the response frame
                             println!("Sending Ack: {:#?}", ack.payload());
-
-                            // Serialize the Ack into a Frame
-                            match ack.serialize() {
-                                Ok(response) => {
-                                    socket.write_all(&response).await?;
-                                    socket.flush().await?;
-                                }
-                                Err(e) => {
-                                    eprintln!("Failed to serialize response: {:?}", e);
-                                }
-                            }
+                            socket.write_all(&ack.serialize()?).await?;
                         }
                     }
 
