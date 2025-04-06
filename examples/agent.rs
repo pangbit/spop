@@ -5,7 +5,7 @@ use spop::{
     SpopFrame, SpopFrameExt,
     actions::VarScope,
     frame::{FramePayload, FrameType},
-    frames::{Ack, AgentDisconnect, AgentHello, HaproxyHello},
+    frames::{Ack, AgentDisconnect, AgentHello, FrameCapabilities, HaproxyHello},
     parser::parse_frame,
     types::TypedData,
 };
@@ -90,7 +90,7 @@ async fn handle_connection(mut socket: UnixStream) -> Result<()> {
                         let agent_hello = AgentHello {
                             version,
                             max_frame_size,
-                            capabilities: vec![], // Empty capabilities for now
+                            capabilities: vec![FrameCapabilities::Pipelining],
                         };
 
                         println!("Sending AgentHello: {:#?}", agent_hello.payload());
