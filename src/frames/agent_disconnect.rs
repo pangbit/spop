@@ -5,28 +5,34 @@ use crate::{
 };
 use std::collections::HashMap;
 
-// 3.2.9. Frame: AGENT-DISCONNECT
-// -------------------------------
-//
-// If an error occurs, at anytime, from the agent size, a AGENT-DISCONNECT frame
-// is sent, with information describing the error. such frame is also sent in reply
-// to a HAPROXY-DISCONNECT. The agent must close the socket just after sending
-// this frame.
-//
-// The payload of this frame is a KV-LIST. STREAM-ID and FRAME-ID are must be set
-// 0.
-//
-// Following items are mandatory in the KV-LIST:
-//
-//   * "status-code"    <UINT32>
-//
-//     This is the code corresponding to the error.
-//
-//   * "message"    <STRING>
-//
-//     This is a textual message describing the error.
-//
-// For more information about known errors, see section "Errors & timeouts"
+/// Frame AGENT-DISCONNECT
+///
+/// <https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L979>
+///
+/// ```text
+/// 3.2.9. Frame: AGENT-DISCONNECT
+/// -------------------------------
+///
+/// If an error occurs, at anytime, from the agent size, a AGENT-DISCONNECT frame
+/// is sent, with information describing the error. such frame is also sent in reply
+/// to a HAPROXY-DISCONNECT. The agent must close the socket just after sending
+/// this frame.
+///
+/// The payload of this frame is a KV-LIST. STREAM-ID and FRAME-ID are must be set
+/// 0.
+///
+/// Following items are mandatory in the KV-LIST:
+///
+///   * "status-code"    <UINT32>
+///
+///     This is the code corresponding to the error.
+///
+///   * "message"    <STRING>
+///
+///     This is a textual message describing the error.
+///
+/// For more information about known errors, see section "Errors & timeouts"
+/// ```
 #[derive(Debug)]
 pub struct AgentDisconnect {
     pub status_code: u32,

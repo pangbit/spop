@@ -7,28 +7,30 @@ use nom::{
 };
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-// https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L635
-//
-// Here is the bytewise representation of typed data:
-//
-//     TYPED-DATA    : <TYPE:4 bits><FLAGS:4 bits><DATA>
-//
-// Supported types and their representation are:
-//
-//     TYPE                       |  ID | DESCRIPTION
-//   -----------------------------+-----+----------------------------------
-//      NULL                      |  0  |  NULL   : <0>
-//      Boolean                   |  1  |  BOOL   : <1+FLAG>
-//      32bits signed integer     |  2  |  INT32  : <2><VALUE:varint>
-//      32bits unsigned integer   |  3  |  UINT32 : <3><VALUE:varint>
-//      64bits signed integer     |  4  |  INT64  : <4><VALUE:varint>
-//      32bits unsigned integer   |  5  |  UNIT64 : <5><VALUE:varint>
-//      IPV4                      |  6  |  IPV4   : <6><STRUCT IN_ADDR:4 bytes>
-//      IPV6                      |  7  |  IPV6   : <7><STRUCT IN_ADDR6:16 bytes>
-//      String                    |  8  |  STRING : <8><LENGTH:varint><BYTES>
-//      Binary                    |  9  |  BINARY : <9><LENGTH:varint><BYTES>
-//     10 -> 15  unused/reserved  |  -  |  -
-//   -----------------------------+-----+----------------------------------
+/// <https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L635>
+///
+/// ```text
+/// Here is the bytewise representation of typed data:
+///
+///     TYPED-DATA    : <TYPE:4 bits><FLAGS:4 bits><DATA>
+///
+/// Supported types and their representation are:
+///
+///     TYPE                       |  ID | DESCRIPTION
+///   -----------------------------+-----+----------------------------------
+///      NULL                      |  0  |  NULL   : <0>
+///      Boolean                   |  1  |  BOOL   : <1+FLAG>
+///      32bits signed integer     |  2  |  INT32  : <2><VALUE:varint>
+///      32bits unsigned integer   |  3  |  UINT32 : <3><VALUE:varint>
+///      64bits signed integer     |  4  |  INT64  : <4><VALUE:varint>
+///      32bits unsigned integer   |  5  |  UNIT64 : <5><VALUE:varint>
+///      IPV4                      |  6  |  IPV4   : <6><STRUCT IN_ADDR:4 bytes>
+///      IPV6                      |  7  |  IPV6   : <7><STRUCT IN_ADDR6:16 bytes>
+///      String                    |  8  |  STRING : <8><LENGTH:varint><BYTES>
+///      Binary                    |  9  |  BINARY : <9><LENGTH:varint><BYTES>
+///     10 -> 15  unused/reserved  |  -  |  -
+///   -----------------------------+-----+----------------------------------
+/// ```
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TypedData {
     Null,
@@ -87,7 +89,7 @@ impl TypedData {
     }
 }
 
-// Returns the Type ID and Flags from the first byte of the input
+/// Returns the Type ID and Flags from the first byte of the input
 pub fn typed_data(input: &[u8]) -> IResult<&[u8], TypedData> {
     if input.is_empty() {
         return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));

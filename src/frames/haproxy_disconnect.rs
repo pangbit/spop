@@ -5,27 +5,32 @@ use crate::{
 };
 use std::{collections::HashMap, convert::TryFrom};
 
-// 3.2.8. Frame: HAPROXY-DISCONNECT
-// ---------------------------------
-//
-// If an error occurs, at anytime, from the HAProxy side, a HAPROXY-DISCONNECT
-// frame is sent with information describing the error. HAProxy will wait an
-// AGENT-DISCONNECT frame in reply. All other frames will be ignored. The agent
-// must then close the socket.
-//
-// The payload of this frame is a KV-LIST. STREAM-ID and FRAME-ID are must be set
-// 0.
-//
-// Following items are mandatory in the KV-LIST:
-//
-//   * "status-code"    <UINT32>
-//
-//     This is the code corresponding to the error.
-//
-//   * "message"    <STRING>
-//
-//     This is a textual message describing the error.
-//
+/// Frame HAPROXY-DISCONNECT
+///
+/// <https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L956>
+///
+/// ```text
+/// 3.2.8. Frame: HAPROXY-DISCONNECT
+/// ---------------------------------
+///
+/// If an error occurs, at anytime, from the HAProxy side, a HAPROXY-DISCONNECT
+/// frame is sent with information describing the error. HAProxy will wait an
+/// AGENT-DISCONNECT frame in reply. All other frames will be ignored. The agent
+/// must then close the socket.
+///
+/// The payload of this frame is a KV-LIST. STREAM-ID and FRAME-ID are must be set
+/// 0.
+///
+/// Following items are mandatory in the KV-LIST:
+///
+///   * "status-code"    <UINT32>
+///
+///     This is the code corresponding to the error.
+///
+///   * "message"    <STRING>
+///
+///     This is a textual message describing the error.
+/// ```
 #[derive(Debug)]
 pub struct HaproxyDisconnect {
     pub status_code: u32,

@@ -39,11 +39,14 @@ test:
 shell:
     podman exec -it {{CONTAINER_NAME}} bash
 
-clippy: fmt
+clippy: fmt cargo-test
   cargo clippy --all -- -W clippy::all -W clippy::nursery -D warnings
 
 fmt:
   cargo fmt --all -- --check
+
+cargo-test:
+  cargo test --all -- --test-threads=1
 
 # Run the example
 agent:

@@ -17,7 +17,7 @@ use nom::{
 };
 use std::collections::HashMap;
 
-/// <https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt>
+/// Parse a frame from the input byte slice
 pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Box<dyn SpopFrame>> {
     // Exchange between HAProxy and agents are made using FRAME packets. All frames must be
     // prefixed with their size encoded on 4 bytes in network byte order:

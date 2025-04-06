@@ -1,22 +1,19 @@
 use nom::{IResult, number::complete::be_u8};
 
-// https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L659-L666
-//
-// Variable-length integer (varint) are encoded using Peers encoding:
-//
-//
-//        0  <= X < 240        : 1 byte  (7.875 bits)  [ XXXX XXXX ]
-//       240 <= X < 2288       : 2 bytes (11 bits)     [ 1111 XXXX ] [ 0XXX XXXX ]
-//      2288 <= X < 264432     : 3 bytes (18 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]   [ 0XXX XXXX ]
-//    264432 <= X < 33818864   : 4 bytes (25 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]*2 [ 0XXX XXXX ]
-//  33818864 <= X < 4328786160 : 5 bytes (32 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]*3 [ 0XXX XXXX ]
-//  ...
-//
-// For booleans, the value (true or false) is the first bit in the FLAGS
-// bitfield. if this bit is set to 0, then the boolean is evaluated as false,
-// otherwise, the boolean is evaluated as true.
-//
-// Encoding a varint
+/// <https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L659-L667>
+///
+/// ```text
+/// Variable-length integer (varint) are encoded using Peers encoding:
+///
+///
+///        0  <= X < 240        : 1 byte  (7.875 bits)  [ XXXX XXXX ]
+///       240 <= X < 2288       : 2 bytes (11 bits)     [ 1111 XXXX ] [ 0XXX XXXX ]
+///      2288 <= X < 264432     : 3 bytes (18 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]   [ 0XXX XXXX ]
+///    264432 <= X < 33818864   : 4 bytes (25 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]*2 [ 0XXX XXXX ]
+///  33818864 <= X < 4328786160 : 5 bytes (32 bits)     [ 1111 XXXX ] [ 1XXX XXXX ]*3 [ 0XXX XXXX ]
+///  ...
+///
+/// ```
 pub fn encode_varint(i: u64) -> Vec<u8> {
     let mut buf = Vec::new();
 
@@ -37,7 +34,7 @@ pub fn encode_varint(i: u64) -> Vec<u8> {
     buf
 }
 
-// Decoding a varint
+/// Decodes a variable-length integer (varint) from the input byte slice.
 pub fn decode_varint(input: &[u8]) -> IResult<&[u8], u64> {
     let (mut input, first_byte) = be_u8(input)?;
 

@@ -5,12 +5,18 @@ use crate::{
     types::TypedData,
 };
 
-// 3.2.7. Frame: ACK
-// ------------------
-//
-// ACK frames must be sent by agents to reply to NOTIFY frames. STREAM-ID and
-// FRAME-ID found in a NOTIFY frame must be reuse in the corresponding ACK
-// frame. The payload of ACK frames is a LIST-OF-ACTIONS.
+/// Frame Ack
+///
+/// <https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L949>
+///
+/// ```text
+/// 3.2.7. Frame: ACK
+/// ------------------
+///
+/// ACK frames must be sent by agents to reply to NOTIFY frames. STREAM-ID and
+/// FRAME-ID found in a NOTIFY frame must be reuse in the corresponding ACK
+/// frame. The payload of ACK frames is a LIST-OF-ACTIONS.
+/// ```
 #[derive(Debug, Clone)]
 pub struct Ack {
     pub stream_id: u64,

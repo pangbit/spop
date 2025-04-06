@@ -2,32 +2,36 @@ use crate::{actions::Action, types::TypedData, varint::encode_varint};
 use nom::error::ErrorKind;
 use std::collections::HashMap;
 
-// 3.2.2. Frame types overview
-// ----------------------------
-//
-// Here are types of frame supported by SPOE. Frames sent by HAProxy come first,
-// then frames sent by agents :
-//
-//     TYPE                       |  ID | DESCRIPTION
-//   -----------------------------+-----+-------------------------------------
-//      HAPROXY-HELLO             |  1  |  Sent by HAProxy when it opens a
-//                                |     |  connection on an agent.
-//                                |     |
-//      HAPROXY-DISCONNECT        |  2  |  Sent by HAProxy when it want to close
-//                                |     |  the connection or in reply to an
-//                                |     |  AGENT-DISCONNECT frame
-//                                |     |
-//      NOTIFY                    |  3  |  Sent by HAProxy to pass information
-//                                |     |  to an agent
-//   -----------------------------+-----+-------------------------------------
-//      AGENT-HELLO               | 101 |  Reply to a HAPROXY-HELLO frame, when
-//                                |     |  the connection is established
-//                                |     |
-//      AGENT-DISCONNECT          | 102 |  Sent by an agent just before closing
-//                                |     |  the connection
-//                                |     |
-//      ACK                       | 103 |  Sent to acknowledge a NOTIFY frame
-//   -----------------------------+-----+-------------------------------------
+/// <https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L751>
+///
+/// ```text
+/// 3.2.2. Frame types overview
+/// ----------------------------
+///
+/// Here are types of frame supported by SPOE. Frames sent by HAProxy come first,
+/// then frames sent by agents :
+///
+///     TYPE                       |  ID | DESCRIPTION
+///   -----------------------------+-----+-------------------------------------
+///      HAPROXY-HELLO             |  1  |  Sent by HAProxy when it opens a
+///                                |     |  connection on an agent.
+///                                |     |
+///      HAPROXY-DISCONNECT        |  2  |  Sent by HAProxy when it want to close
+///                                |     |  the connection or in reply to an
+///                                |     |  AGENT-DISCONNECT frame
+///                                |     |
+///      NOTIFY                    |  3  |  Sent by HAProxy to pass information
+///                                |     |  to an agent
+///   -----------------------------+-----+-------------------------------------
+///      AGENT-HELLO               | 101 |  Reply to a HAPROXY-HELLO frame, when
+///                                |     |  the connection is established
+///                                |     |
+///      AGENT-DISCONNECT          | 102 |  Sent by an agent just before closing
+///                                |     |  the connection
+///                                |     |
+///      ACK                       | 103 |  Sent to acknowledge a NOTIFY frame
+///   -----------------------------+-----+-------------------------------------
+/// ```
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum FrameType {
     HaproxyHello = 1,
@@ -64,26 +68,12 @@ impl FrameType {
     }
 }
 
-// Exchange between HAProxy and agents are made using FRAME packets. All frames
-// must be prefixed with their size encoded on 4 bytes in network byte order:
-//
-//     <FRAME-LENGTH:4 bytes> <FRAME>
-//
-// A frame always starts with its type, on one byte, followed by metadata
-// containing flags, on 4 bytes and a two variable-length integer representing the
-// stream identifier and the frame identifier inside the stream:
-//
-//     FRAME       : <FRAME-TYPE:1 byte> <METADATA> <FRAME-PAYLOAD>
-//     METADATA    : <FLAGS:4 bytes> <STREAM-ID:varint> <FRAME-ID:varint>
-//
-#[derive(Debug)]
-pub struct Frame {
-    pub frame_type: FrameType,
-    pub metadata: Metadata,
-    pub payload: FramePayload,
-}
-
-// METADATA    : <FLAGS:4 bytes> <STREAM-ID:varint> <FRAME-ID:varint>
+///  metadata contanis flags, on 4 bytes and a two variable-length integer representing the
+///  stream identifier and the frame identifier inside the stream:
+///
+/// ```text
+/// METADATA    : <FLAGS:4 bytes> <STREAM-ID:varint> <FRAME-ID:varint>
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct Metadata {
     pub flags: FrameFlags,
@@ -105,21 +95,23 @@ impl Metadata {
     }
 }
 
-// Then comes the frame payload. Depending on the frame type, the payload can be
-// of three types: a simple key/value list, a list of messages or a list of
-// actions.
-//
-//     FRAME-PAYLOAD    : <LIST-OF-MESSAGES> | <LIST-OF-ACTIONS> | <KV-LIST>
-//
-//     LIST-OF-MESSAGES : [ <MESSAGE-NAME> <NB-ARGS:1 byte> <KV-LIST> ... ]
-//     MESSAGE-NAME     : <STRING>
-//
-//     LIST-OF-ACTIONS  : [ <ACTION-TYPE:1 byte> <NB-ARGS:1 byte> <ACTION-ARGS> ... ]
-//     ACTION-ARGS      : [ <TYPED-DATA>... ]
-//
-//     KV-LIST          : [ <KV-NAME> <KV-VALUE> ... ]
-//     KV-NAME          : <STRING>
-//     KV-VALUE         : <TYPED-DATA>
+/// Then comes the frame payload. Depending on the frame type, the payload can be
+/// of three types: a simple key/value list, a list of messages or a list of
+/// actions.
+/// ```text
+///
+///     FRAME-PAYLOAD    : <LIST-OF-MESSAGES> | <LIST-OF-ACTIONS> | <KV-LIST>
+///
+///     LIST-OF-MESSAGES : [ <MESSAGE-NAME> <NB-ARGS:1 byte> <KV-LIST> ... ]
+///     MESSAGE-NAME     : <STRING>
+///
+///     LIST-OF-ACTIONS  : [ <ACTION-TYPE:1 byte> <NB-ARGS:1 byte> <ACTION-ARGS> ... ]
+///     ACTION-ARGS      : [ <TYPED-DATA>... ]
+///
+///     KV-LIST          : [ <KV-NAME> <KV-VALUE> ... ]
+///     KV-NAME          : <STRING>
+///     KV-VALUE         : <TYPED-DATA>
+/// ```
 #[derive(Debug)]
 pub enum FramePayload {
     ListOfMessages(Vec<Message>),
@@ -127,12 +119,40 @@ pub enum FramePayload {
     KVList(HashMap<String, TypedData>),
 }
 
+/// Represents a message in the list of messages.
+/// ```text
+///     LIST-OF-MESSAGES : [ <MESSAGE-NAME> <NB-ARGS:1 byte> <KV-LIST> ... ]
+///     MESSAGE-NAME     : <STRING>
+/// ```
 #[derive(Debug, Clone)]
 pub struct Message {
     pub name: String,
     pub args: HashMap<String, TypedData>,
 }
 
+/// Flags are a 32 bits field. They are encoded on 4 bytes in network byte
+/// order, where the bit 0 is the LSB.
+///
+/// ```text
+/// FLAGS :
+///
+///           0   1      2-31
+///         +---+---+----------+
+///         |   | A |          |
+///         | F | B |          |
+///         | I | O | RESERVED |
+///         | N | R |          |
+///         |   | T |          |
+///         +---+---+----------+
+///
+/// FIN: Indicates that this is the final payload fragment. The first fragment
+///      may also be the final fragment. The payload fragmentation was removed
+///      and is now deprecated. It means the FIN flag must be set on all
+///      frames.
+///
+/// ABORT: Indicates that the processing of the current frame must be
+///        cancelled.
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct FrameFlags(u32);
 

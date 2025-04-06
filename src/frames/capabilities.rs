@@ -1,19 +1,25 @@
 use std::{fmt, str::FromStr};
 
-// 3.2.1. Frame capabilities
-// --------------------------
-//
-// Here are the list of official capabilities that HAProxy and agents can support:
-//
-//   * pipelining: This is the ability for a peer to decouple NOTIFY and ACK
-//                 frames. This is a symmectical capability. To be used, it must
-//                 be supported by HAProxy and agents. Unlike HTTP pipelining, the
-//                 ACK frames can be send in any order, but always on the same TCP
-//                 connection used for the corresponding NOTIFY frame.
-//
-// Unsupported or unknown capabilities are silently ignored, when possible.
-//
-// NOTE: Fragmentation and async capabilities were deprecated and are now ignored.
+/// Frame capabilities
+///
+/// <https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L736>
+///
+/// ```text
+/// 3.2.1. Frame capabilities
+/// --------------------------
+///
+/// Here are the list of official capabilities that HAProxy and agents can support:
+///
+///   * pipelining: This is the ability for a peer to decouple NOTIFY and ACK
+///                 frames. This is a symmectical capability. To be used, it must
+///                 be supported by HAProxy and agents. Unlike HTTP pipelining, the
+///                 ACK frames can be send in any order, but always on the same TCP
+///                 connection used for the corresponding NOTIFY frame.
+///
+/// Unsupported or unknown capabilities are silently ignored, when possible.
+///
+/// NOTE: Fragmentation and async capabilities were deprecated and are now ignored.
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FrameCapabilities {
     Pipelining,
