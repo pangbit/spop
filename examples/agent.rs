@@ -63,7 +63,8 @@ async fn handle_connection(mut socket: UnixStream) -> Result<()> {
         let n = socket.read_buf(&mut buffer).await?;
         if n == 0 {
             println!("Client disconnected");
-            break;
+
+            return Ok(());
         }
 
         println!("Buffer: {:X?}", buffer);
@@ -206,6 +207,4 @@ async fn handle_connection(mut socket: UnixStream) -> Result<()> {
 
         buffer.clear();
     }
-
-    Ok(())
 }
