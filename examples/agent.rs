@@ -178,7 +178,7 @@ async fn handle_connection(mut socket: UnixStream) -> Result<()> {
                             );
 
                             // Create the response frame
-                            println!("Sending Ack: {:#?}", frame.payload());
+                            println!("Sending Ack: {:#?}", ack.payload());
 
                             // Serialize the Ack into a Frame
                             match ack.serialize() {
