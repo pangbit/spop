@@ -7,17 +7,6 @@ use nom::{
 };
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-const TYPE_NULL: u8 = 0x00;
-const TYPE_BOOL: u8 = 0x01;
-const TYPE_INT32: u8 = 0x02;
-const TYPE_UINT32: u8 = 0x03;
-const TYPE_INT64: u8 = 0x04;
-const TYPE_UINT64: u8 = 0x05;
-const TYPE_IPV4: u8 = 0x06;
-const TYPE_IPV6: u8 = 0x07;
-const TYPE_STRING: u8 = 0x08;
-const TYPE_BINARY: u8 = 0x09;
-
 /// <https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L635>
 ///
 /// ```text
@@ -42,6 +31,17 @@ const TYPE_BINARY: u8 = 0x09;
 ///     10 -> 15  unused/reserved  |  -  |  -
 ///   -----------------------------+-----+----------------------------------
 /// ```
+const TYPE_NULL: u8 = 0x00;
+const TYPE_BOOL: u8 = 0x01;
+const TYPE_INT32: u8 = 0x02;
+const TYPE_UINT32: u8 = 0x03;
+const TYPE_INT64: u8 = 0x04;
+const TYPE_UINT64: u8 = 0x05;
+const TYPE_IPV4: u8 = 0x06;
+const TYPE_IPV6: u8 = 0x07;
+const TYPE_STRING: u8 = 0x08;
+const TYPE_BINARY: u8 = 0x09;
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TypedData {
     Null,

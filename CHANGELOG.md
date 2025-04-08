@@ -1,6 +1,9 @@
 Changelog
 =========
 
+## 0.8.4
+- Implement typed data serialization for all types & test_parse_haproxy_hello, thanks @vipera
+
 ## 0.8.0
 - Using Semver to parse the "supported-versions" field (major.minor)
 

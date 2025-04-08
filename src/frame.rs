@@ -227,17 +227,17 @@ mod tests {
     #[test]
     fn test_frameflags() {
         let flags = FrameFlags(0x00000001);
-        assert_eq!(flags.is_fin(), true);
+        assert!(flags.is_fin());
 
         let flags = FrameFlags(0x00000000);
-        assert_eq!(flags.is_fin(), false);
+        assert!(!flags.is_fin());
 
         let flags = FrameFlags(0x00000002);
-        assert_eq!(flags.is_abort(), true);
+        assert!(flags.is_abort());
 
         let flags = FrameFlags(0x00000003);
-        assert_eq!(flags.is_fin(), true);
-        assert_eq!(flags.is_abort(), true);
+        assert!(flags.is_fin());
+        assert!(flags.is_abort());
     }
 
     #[test]

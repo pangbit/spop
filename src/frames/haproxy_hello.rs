@@ -230,7 +230,7 @@ mod tests {
         assert_eq!(frame.frame_type(), &FrameType::HaproxyHello);
         assert_eq!(frame.metadata().stream_id, 0);
         assert_eq!(frame.metadata().frame_id, 0);
-        assert_eq!(frame.metadata().flags.is_fin(), false);
+        assert!(!frame.metadata().flags.is_fin());
         assert_eq!(
             frame.payload.supported_versions,
             vec![Version::new(2, 0, 0), Version::new(1, 5, 0)]
