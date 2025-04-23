@@ -96,7 +96,7 @@ async fn handle_connection(u_stream: UnixStream) -> Result<()> {
                 socket.flush().await?;
 
                 // sleep 10 seconds to simulate a long operation
-                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                //                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
 
                 // If "healthcheck" item was set to TRUE in the HAPROXY-HELLO frame, the
                 // agent can safely close the connection without DISCONNECT frame. In all
