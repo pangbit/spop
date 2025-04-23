@@ -24,6 +24,8 @@ impl Decoder for SpopCodec {
                 Ok(Some(frame))
             }
 
+            Err(nom::Err::Incomplete(_)) => Ok(None),
+
             Err(e) => {
                 // Return a generic io::Error, including the error message from nom::Err
                 Err(io::Error::new(
