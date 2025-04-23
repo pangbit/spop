@@ -1,6 +1,10 @@
 Changelog
 =========
 
+## 0.9.0
+- SpopCodec for encoding/decoding to use with tokio_util::codec
+- Removed SpopFrameExt
+
 ## 0.8.4
 - Implement typed data serialization for all types & test_parse_haproxy_hello, thanks @vipera
 

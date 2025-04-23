@@ -21,6 +21,9 @@ pub use self::types::TypedData;
 pub mod varint;
 pub use self::varint::{decode_varint, encode_varint};
 
+pub mod codec;
+pub use self::codec::SpopCodec;
+
 /// core trait for the SPOP frame
 ///
 /// <https://github.com/haproxy/haproxy/blob/master/doc/SPOE.txt#L673>
@@ -93,10 +96,7 @@ pub trait SpopFrame: std::fmt::Debug + Send {
     fn frame_type(&self) -> &FrameType;
     fn metadata(&self) -> Metadata;
     fn payload(&self) -> FramePayload;
-}
 
-/// trait for serializing SPOP frames
-pub trait SpopFrameExt: SpopFrame {
     fn serialize(&self) -> std::io::Result<Vec<u8>> {
         let mut serialized = Vec::new();
 
@@ -117,9 +117,6 @@ pub trait SpopFrameExt: SpopFrame {
         Ok(output)
     }
 }
-
-/// Blanket implementation: any type implementing SpopFrame gets SpopFrameExt automatically.
-impl<T: SpopFrame> SpopFrameExt for T {}
 
 /// Helper function to encode the payload.
 /// It supports ListOfActions and KVList payloads.
@@ -147,6 +144,7 @@ fn encode_payload(payload: &FramePayload, buf: &mut Vec<u8>) -> std::io::Result<
                         // Serialize variable value based on type
                         value.to_bytes(buf);
                     }
+
                     Action::UnSetVar { scope, name } => {
                         // Action type: UNSET-VAR (1 byte)
                         buf.push(0x02);
@@ -184,12 +182,14 @@ fn encode_payload(payload: &FramePayload, buf: &mut Vec<u8>) -> std::io::Result<
                         // serialize the value
                         buf.extend_from_slice(val.as_bytes());
                     }
+
                     TypedData::UInt32(val) => {
                         // UINT32: <3><VALUE:varint>
                         buf.push(0x03);
                         // use encode_varint for the length of the value
                         buf.extend(encode_varint(*val as u64));
                     }
+
                     _ => {}
                 }
             }
