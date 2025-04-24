@@ -1,4 +1,6 @@
 [![Test](https://github.com/nbari/spop/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/nbari/spop/actions/workflows/test.yml)
+[![crates.io](https://img.shields.io/crates/v/spop.svg)](https://crates.io/crates/spop)
+
 
 # spop
 
