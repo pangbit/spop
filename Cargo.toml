@@ -1,6 +1,6 @@
 [package]
 name = "spop"
-version = "0.9.0"
+version = "0.9.1"
 authors = ["Nicolas Embriz <nbari@tequila.io>"]
 description = "Library for parsing HAProxy SPOP (Stream Processing Offload Protocol)"
 documentation = "https://docs.rs/spop/latest/spop/"
@@ -26,5 +26,9 @@ name = "spop"
 path = "src/lib.rs"
 
 [[example]]
-name = "agent"
-path = "examples/agent.rs"
+name = "agent_socket"
+path = "examples/agent_socket.rs"
+
+[[example]]
+name = "agent_tcp"
+path = "examples/agent_tcp.rs"

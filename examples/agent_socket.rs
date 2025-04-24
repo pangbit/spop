@@ -14,18 +14,6 @@ use tokio_util::codec::Framed;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // to use TCP, uncomment the following lines, and add
-    // net::{TcpListener, TcpStream}
-    //
-    // let listener = TcpListener::bind("0.0.0.0:12345").await?;
-    // println!("SPOE Agent listening on port 12345...");
-    //
-    // loop {
-    //     let (socket, addr) = listener.accept().await?;
-    //     println!("New connection from {}", addr);
-    //     tokio::spawn(handle_connection(socket));
-    // }
-
     let socket_path = "spoa_agent/spoa.sock";
 
     // Clean up the socket if it already exists
@@ -93,11 +81,6 @@ async fn handle_connection(u_stream: UnixStream) -> Result<()> {
                     Err(e) => eprintln!("Failed to send frame: {:?}", e),
                 }
 
-                socket.flush().await?;
-
-                // sleep 10 seconds to simulate a long operation
-                //                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-
                 // If "healthcheck" item was set to TRUE in the HAPROXY-HELLO frame, the
                 // agent can safely close the connection without DISCONNECT frame. In all
                 // cases, HAProxy will close the connection at the end of the health check.
@@ -117,6 +100,7 @@ async fn handle_connection(u_stream: UnixStream) -> Result<()> {
                 println!("Sending AgentDisconnect: {:#?}", agent_disconnect.payload());
 
                 socket.send(Box::new(agent_disconnect)).await?;
+                socket.close().await?;
 
                 return Ok(());
             }

@@ -49,5 +49,8 @@ cargo-test:
   cargo test --all -- --test-threads=1
 
 # Run the example
-agent:
-  cargo watch --ignore spoa_agent/ -x 'run --example agent'
+agent_socket:
+  cargo watch --ignore spoa_agent/ -x 'run --example agent_socket'
+
+agent_tcp:
+  cargo watch --ignore spoa_agent/ -x 'run --example agent_tcp'

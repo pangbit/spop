@@ -1,6 +1,9 @@
 Changelog
 =========
 
+## 0.9.1
+- Added tcp example
+
 ## 0.9.0
 - SpopCodec for encoding/decoding to use with tokio_util::codec
 - Removed SpopFrameExt
