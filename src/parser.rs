@@ -25,13 +25,18 @@ pub fn parse_frame(input: &[u8]) -> IResult<&[u8], Box<dyn SpopFrame>> {
     //
     let (input, frame_length) = be_u32(input)?;
 
+    // check if the input buffer is complete
+    if input.len() < frame_length as usize {
+        return Err(nom::Err::Incomplete(nom::Needed::Unknown));
+    }
+
     // Extract only frame body
     let (remaining, frame) = take(frame_length)(input)?;
 
-    // check if the frame length is correct
-    if frame.len() != frame_length as usize {
-        return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
-    }
+    // // check if the frame length is correct
+    // if frame.len() != frame_length as usize {
+    //     return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
+    // }
 
     //A frame always starts with its type, on one byte, followed by metadata containing flags, on 4
     //bytes and a two variable-length integer representing the stream identifier and the frame
