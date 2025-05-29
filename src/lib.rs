@@ -178,11 +178,29 @@ fn encode_payload(payload: &FramePayload, buf: &mut Vec<u8>) -> std::io::Result<
             }
         }
 
-        _ => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Unsupported frame payload type",
-            ));
+        FramePayload::ListOfMessages(messages) => {
+            for message in messages {
+                // use encode_varint for the length of the name
+                buf.extend(encode_varint(message.name.len() as u64));
+
+                // serialize the name
+                buf.extend_from_slice(message.name.as_bytes());
+
+                // message.args count
+                let count = message.args.len();
+                buf.push(count as u8);
+
+                for (key, value) in &message.args {
+                    // use encode_varint for the length of the key
+                    buf.extend(encode_varint(key.len() as u64));
+
+                    // serialize the key
+                    buf.extend_from_slice(key.as_bytes());
+
+                    // serialize variable value based on type
+                    value.to_bytes(buf);
+                }
+            }
         }
     }
 
