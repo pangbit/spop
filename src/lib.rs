@@ -173,25 +173,8 @@ fn encode_payload(payload: &FramePayload, buf: &mut Vec<u8>) -> std::io::Result<
                 // serialize the key
                 buf.extend_from_slice(key.as_bytes());
 
-                match value {
-                    TypedData::String(val) => {
-                        // STRING: <8><LENGTH:varint><BYTES>
-                        buf.push(0x08);
-                        // use encode_varint for the length of the value
-                        buf.extend(encode_varint(val.len() as u64));
-                        // serialize the value
-                        buf.extend_from_slice(val.as_bytes());
-                    }
-
-                    TypedData::UInt32(val) => {
-                        // UINT32: <3><VALUE:varint>
-                        buf.push(0x03);
-                        // use encode_varint for the length of the value
-                        buf.extend(encode_varint(*val as u64));
-                    }
-
-                    _ => {}
-                }
+                // serialize variable value based on type
+                value.to_bytes(buf);
             }
         }
 
